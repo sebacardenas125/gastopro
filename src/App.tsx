@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Sun, Moon, Plus, Trash2, Download, Upload, Filter, Wallet, HelpCircle, X,
-  ArrowLeftRight, Award, Flame, Target, ChevronUp, ChevronDown, Settings, Brush
+  ArrowLeftRight, Award, Flame, Target, ChevronUp, ChevronDown, Settings, Brush,
+  MessageCircle
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 
@@ -90,6 +91,13 @@ type SavingsGoal = { id: string; name: string; target: number; balance: number; 
 type ThemeMode = "light" | "dark" | "minimal" | "retro8" | "gold";
 type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
 
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  actions?: { id: string; label: string; payload?: any }[];
+};
+
 // ---------- App ----------
 export default function ExpenseTracker() {
   // Preferencias
@@ -145,7 +153,6 @@ export default function ExpenseTracker() {
   const [transferAmt, setTransferAmt] = useState<string | number>(0);
   const [transferNote, setTransferNote] = useState("");
 
-  // *** usados por el modal de nuevo objetivo ***
   const [goalOpen, setGoalOpen] = useState(false);
   const [newGoalName, setNewGoalName] = useState("");
   const [newGoalTarget, setNewGoalTarget] = useState<string | number>(0);
@@ -159,6 +166,12 @@ export default function ExpenseTracker() {
   // Modales de personalización
   const [themeOpen, setThemeOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // -------- Asistente financiero (local) --------
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
+  const chatListRef = useRef<HTMLDivElement>(null);
 
   const quotes = [
     "Pequeños pasos, grandes resultados.",
@@ -199,6 +212,11 @@ export default function ExpenseTracker() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Scrolling del chat al final al recibir mensaje
+  useEffect(() => {
+    chatListRef.current?.scrollTo({ top: chatListRef.current.scrollHeight, behavior: "smooth" });
+  }, [chatOpen, chat]);
 
   // Helpers
   const ensureAccount = (id: string) => (accounts.some((a) => a.id === id) ? id : accounts[0]?.id || "cash");
@@ -343,7 +361,6 @@ export default function ExpenseTracker() {
 
   // -------- GAMIFICACIÓN --------
   const isSavingsTx = (t: any) => t.type === "expense" && t.category === "ahorro";
-
   const totalSavedAllTime = useMemo(
     () => items.filter(isSavingsTx).reduce((a: number, b: any) => a + (b.amount || 0), 0),
     [items]
@@ -371,7 +388,6 @@ export default function ExpenseTracker() {
 
   const startOfWeek = (d: Date) => { const day = new Date(d); const dow = day.getDay(); const diff = (dow === 0 ? -6 : 1) - dow; day.setDate(day.getDate() + diff); day.setHours(0,0,0,0); return day; };
   const endOfWeek = (d: Date) => { const s = startOfWeek(d); const e = new Date(s); e.setDate(s.getDate() + 7); return e; };
-
   const sumBetween = (from: Date, to: Date) => {
     let s = 0; items.filter(isSavingsTx).forEach((t) => { const d = new Date((t.date || "") + "T00:00:00"); if (d >= from && d < to) s += (t.amount || 0); }); return s;
   };
@@ -437,6 +453,216 @@ export default function ExpenseTracker() {
   };
   const toggleKpi = (id: KpiId) => setKpiVisible((v) => ({ ...v, [id]: !v[id] }));
 
+  // ---------- ASISTENTE: lógica de intents ----------
+  const monthLabel = `${y}-${String(m).padStart(2, "0")}`;
+  const lastMonth = new Date(y, m - 2, 1);
+  const lastStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+  const lastEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1);
+  const inLastMonth = items.filter((t) => {
+    const d = new Date((t.date || "") + "T00:00:00");
+    return d >= lastStart && d < lastEnd;
+  });
+  const lastIn  = inLastMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
+  const lastOut = inLastMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
+
+  function chatPushUser(text: string) {
+    setChat((c) => [...c, { id: uid(), role: "user", text }]);
+  }
+  function chatPushAssistant(text: string, actions?: ChatMsg["actions"]) {
+    setChat((c) => [...c, { id: uid(), role: "assistant", text, actions }]);
+  }
+
+  function intentResumen() {
+    const top = [...byCat].slice(0, 1)[0];
+    const txt = `📊 ${monthLabel}\nIngresos: ${fmt(totalIn)}\nGastos: ${fmt(totalOut)}\nSaldo: ${fmt(totalNet)}${top ? `\nMayor gasto: ${top.name} (${fmt(top.value)})` : ""}`;
+    chatPushAssistant(txt, [
+      { id: "dl_csv", label: "⬇️ Descargar CSV" },
+      { id: "ajuste_presupuesto", label: "⚙️ Ajustar presupuesto", payload: { cat: top?.name || "alimentos" } },
+    ]);
+  }
+
+  function intentComparativa() {
+    const delta = totalOut - lastOut;
+    const pctDelta = lastOut > 0 ? Math.round((delta / lastOut) * 100) : 0;
+    const s = delta === 0 ? "igual que" : delta > 0 ? `↑ ${pctDelta}% más que` : `↓ ${Math.abs(pctDelta)}% menos que`;
+    const txt = `📈 Comparativa vs mes pasado\nGastos: ${fmt(totalOut)} (${s})\nMes pasado: ${fmt(lastOut)}`;
+    chatPushAssistant(txt, [{ id: "ver_top_desvios", label: "🔍 Ver top desvíos" }]);
+  }
+
+  function intentPresupuesto() {
+    const overruns = Object.keys(budgets).map((k) => {
+      const spent = spentById[k] || 0;
+      const b = budgets[k] || 0;
+      const ratio = b > 0 ? spent / b : 0;
+      return { k, spent, b, ratio };
+    }).filter(x => x.b > 0 && x.spent > x.b).sort((a,b)=> b.ratio - a.ratio);
+    if (!overruns.length) {
+      chatPushAssistant("✅ No superaste ninguna meta de categoría este mes.");
+      return;
+    }
+    const top = overruns[0];
+    const txt = `⚠️ Te pasaste en: ${top.k} → ${fmt(top.spent)} / ${fmt(top.b)} (${pct(top.spent, top.b)}%)`;
+    chatPushAssistant(txt, [
+      { id: "subir_meta_10", label: "📈 Subir meta +10%", payload: { cat: top.k } },
+      { id: "ajustar_meta_a_gasto", label: "🧮 Igualar meta al gasto", payload: { cat: top.k } },
+    ]);
+  }
+
+  function intentAhorroRacha() {
+    const txt = `🐷 Ahorro total histórico: ${fmt(totalSavedAllTime)}\n🔥 Racha de ahorro: ${streakDays} ${streakDays===1?"día":"días"}\nReto semanal: llevas ${fmt(savedThisWeek)} / meta ${fmt(weeklyTarget)} (${weeklyProgressPct}%)`;
+    chatPushAssistant(txt, [{ id: "crear_meta", label: "🎯 Crear meta" }]);
+  }
+
+  function intentSugerencias() {
+    const top = [...byCat].slice(0,3);
+    const tips = top.map(t => `• ${t.name}: reduce 10% → ahorras ~${fmt(Math.round(t.value*0.10))}`).join("\n");
+    chatPushAssistant(`🧠 Ideas rápidas para recortar:\n${tips}\n\n¿Quieres simular algún porcentaje en una categoría?`);
+  }
+
+  function intentSimulacion(text: string) {
+    // soporta "si reduzco alimentos 10%" o "/simular alimentos 10"
+    const m = text.toLowerCase().match(/(reduc[io]?[sz]o?|simul[ao]r?)\s+([a-záéíóú]+)\s+(\d{1,2}|100)/i);
+    if (!m) { chatPushAssistant("Escribe: `si reduzco <categoría> <porcentaje>%` (ej: si reduzco alimentos 10%)"); return; }
+    const catName = m[2].normalize("NFD").replace(/\p{Diacritic}/gu,"");
+    // buscar categoría aproximada (simple)
+    const cats = Object.keys(spentById);
+    const found = cats.find(c => c.startsWith(catName)) || cats.find(c => c.includes(catName)) || m[2];
+    const base = spentById[found] || 0;
+    const p = Number(m[3]);
+    const ahorro = Math.round(base * (p/100));
+    const nuevoSaldo = totalNet + ahorro;
+    chatPushAssistant(`🧪 Simulación\nReduciendo **${found}** en ${p}% ahorrarías ~${fmt(ahorro)}.\nSaldo proyectado: ${fmt(nuevoSaldo)}.`, [
+      { id: "ajustar_presupuesto_pct", label: `⚙️ Subir meta ${found} -${p}%`, payload: { cat: found, pct: p } }
+    ]);
+  }
+
+  function intentAyuda() {
+    chatPushAssistant(
+`🤖 Puedo ayudarte con:
+• "¿Cómo voy este mes?"
+• "¿Gasto más que el mes pasado?"
+• "¿En qué categoría me pasé?"
+• "¿Cuánto llevo ahorrado? ¿Racha?"
+• "Sugerencias" / "Qué puedo recortar"
+• "Si reduzco alimentos 10%" (simulación)
+Comandos:
+• /agregar <monto> <categoria> <nota>
+• /meta "<nombre>" <meta> [emoji]
+• /transferir <monto> <de> <a>`,
+      [
+        { id: "quick_resumen", label: "📊 Resumen" },
+        { id: "quick_comparativa", label: "📈 Comparativa" },
+        { id: "quick_presupuesto", label: "⚠️ Presupuesto" },
+        { id: "quick_ahorro", label: "🐷 Ahorro/Racha" },
+      ]
+    );
+  }
+
+  function parseCommand(text: string) {
+    if (text.startsWith("/agregar")) {
+      const p = text.split(" ").slice(1);
+      const monto = Number(p.shift() || 0);
+      const categoria = (p.shift() || "otros").toLowerCase();
+      const nota = p.join(" ");
+      if (!monto) { chatPushAssistant("Uso: /agregar <monto> <categoria> <nota>"); return; }
+      const row = {
+        id: uid(), date: new Date().toISOString().slice(0,10),
+        type: "expense", category: categoria, note: nota, amount: monto, tags: [], accountId: accounts[0]?.id || "cash"
+      };
+      setItems((prev)=>[row, ...prev]);
+      chatPushAssistant(`✅ Agregado: ${fmt(monto)} en ${categoria}${nota?` (${nota})`:""}`);
+      return;
+    }
+    if (text.startsWith("/meta")) {
+      const m = text.match(/\/meta\s+"([^"]+)"\s+(\d+)(?:\s+(\S+))?/);
+      if (!m) { chatPushAssistant('Uso: /meta "Nombre" <monto> [emoji]'); return; }
+      const name = m[1]; const target = Number(m[2]); const emoji = m[3] || "💸";
+      setGoals((g)=>[...g, { id: uid(), name, target, balance: 0, emoji }]);
+      chatPushAssistant(`🎯 Meta creada: ${name} → ${fmt(target)} ${emoji}`);
+      return;
+    }
+    if (text.startsWith("/transferir")) {
+      const p = text.split(" ").slice(1);
+      const monto = Number(p.shift()||0);
+      const de = p.shift(); const a = p.shift();
+      if (!monto || !de || !a) { chatPushAssistant("Uso: /transferir <monto> <cuenta_origen> <cuenta_destino>"); return; }
+      const origin = accounts.find(x=>x.name.toLowerCase().startsWith((de||"").toLowerCase()))?.id || accounts[0]?.id;
+      const dest   = accounts.find(x=>x.name.toLowerCase().startsWith((a||"").toLowerCase()))?.id || accounts[1]?.id || accounts[0]?.id;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const outTx = { id: uid(), date: todayStr, type: "expense", category: "transfer", note: `Transferencia a ${dest}`, amount: monto, tags: ["transfer"], accountId: origin };
+      const inTx  = { id: uid(), date: todayStr, type: "income",  category: "transfer", note: `Transferencia desde ${origin}`, amount: monto, tags: ["transfer"], accountId: dest };
+      setItems((p)=>[outTx,inTx,...p]);
+      chatPushAssistant(`🔁 Transferencia registrada: ${fmt(monto)} de ${de} a ${a}`);
+      return;
+    }
+    chatPushAssistant("No entendí el comando. Escribe `/ayuda` para ver opciones.");
+  }
+
+  function handleUserText(raw: string) {
+    const text = raw.trim();
+    if (!text) return;
+    chatPushUser(text);
+
+    if (text.startsWith("/")) {
+      if (text === "/ayuda") { intentAyuda(); return; }
+      parseCommand(text); return;
+    }
+
+    const t = text.toLowerCase();
+    if (t.includes("cómo voy") || t.includes("resumen")) { intentResumen(); return; }
+    if (t.includes("comparativa") || t.includes("mes pasado") || t.includes("gasto más")) { intentComparativa(); return; }
+    if (t.includes("presupuesto") || t.includes("categoría me pasé") || t.includes("me pasé")) { intentPresupuesto(); return; }
+    if (t.includes("ahorr") || t.includes("racha")) { intentAhorroRacha(); return; }
+    if (t.includes("sugerenc") || t.includes("recortar") || t.includes("ideas")) { intentSugerencias(); return; }
+    if (t.includes("reduz") || t.includes("reduci") || t.includes("simul")) { intentSimulacion(text); return; }
+
+    intentAyuda();
+  }
+
+  function handleChatAction(a: { id: string; payload?: any }) {
+    if (a.id === "dl_csv") { downloadCSV(); chatPushAssistant("📎 CSV descargado."); return; }
+    if (a.id === "ajuste_presupuesto" && a.payload?.cat) {
+      const c = a.payload.cat as string;
+      const spent = spentById[c] || 0;
+      setBudget(c, Math.max(budgets[c]||0, Math.round(spent*1.1)));
+      chatPushAssistant(`⚙️ Meta de **${c}** ajustada a ${fmt(Math.max(budgets[c]||0, Math.round(spent*1.1)))}`);
+      return;
+    }
+    if (a.id === "subir_meta_10" && a.payload?.cat) {
+      const c = a.payload.cat as string;
+      const b = budgets[c]||0;
+      const n = Math.round(b*1.10);
+      setBudget(c, n);
+      chatPushAssistant(`📈 Meta de **${c}** +10% → ${fmt(n)}`);
+      return;
+    }
+    if (a.id === "ajustar_meta_a_gasto" && a.payload?.cat) {
+      const c = a.payload.cat as string;
+      const spent = spentById[c] || 0;
+      setBudget(c, spent);
+      chatPushAssistant(`🧮 Meta de **${c}** igualada al gasto actual → ${fmt(spent)}`);
+      return;
+    }
+    if (a.id === "ajustar_presupuesto_pct" && a.payload?.cat) {
+      const c = a.payload.cat as string;
+      const p = Number(a.payload.pct||0);
+      const b = budgets[c]||0;
+      const n = Math.max(0, Math.round(b*(1 - p/100)));
+      setBudget(c, n);
+      chatPushAssistant(`⚙️ Meta de **${c}** ajustada -${p}% → ${fmt(n)}`);
+      return;
+    }
+    if (a.id === "crear_meta") {
+      setGoalOpen(true);
+      chatPushAssistant("Abriendo formulario para nueva meta…");
+      return;
+    }
+    if (a.id === "quick_resumen") { intentResumen(); return; }
+    if (a.id === "quick_comparativa") { intentComparativa(); return; }
+    if (a.id === "quick_presupuesto") { intentPresupuesto(); return; }
+    if (a.id === "quick_ahorro") { intentAhorroRacha(); return; }
+  }
+
   // ---------- RENDER ----------
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
@@ -446,22 +672,15 @@ export default function ExpenseTracker() {
             <h1 className={cx("text-3xl font-bold", themeMode === "retro8" ? "tracking-wider" : "")}>GastoPro</h1>
 
             <div className="flex items-center gap-2">
-              {/* Selector de tema visual */}
               <Button variant="neutral" onClick={() => setThemeOpen(true)} title="Temas">
                 <Brush className="w-4 h-4" /> Tema
               </Button>
-
-              {/* Configurar dashboard */}
               <Button variant="neutral" onClick={() => setCustomizeOpen(true)} title="Dashboard">
                 <Settings className="w-4 h-4" /> Dashboard
               </Button>
-
-              {/* Moneda */}
               <select value={currency} onChange={(e: Sel) => setCurrency(e.target.value as "CLP"|"USD"|"EUR")} className="rounded-xl bg-white/90 text-slate-900 px-2 py-1 text-sm">
                 {["CLP","USD","EUR"].map((c) => <option key={c}>{c}</option>)}
               </select>
-
-              {/* Compatibilidad: Botón rápido dark/light */}
               <Button variant="neutral" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
                 {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />} Tema rápido
               </Button>
@@ -779,7 +998,6 @@ export default function ExpenseTracker() {
         </form>
       </Modal>
 
-      {/* Personalizar tema */}
       <Modal open={themeOpen} onClose={() => setThemeOpen(false)} title="Temas visuales">
         <div className="grid sm:grid-cols-2 gap-3">
           {[
@@ -798,10 +1016,8 @@ export default function ExpenseTracker() {
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setThemeOpen(false)}>Cerrar</Button></div>
       </Modal>
 
-      {/* Personalizar dashboard (KPIs) + iconos categoría */}
       <Modal open={customizeOpen} onClose={() => setCustomizeOpen(false)} title="Personalización de dashboard e iconos">
         <div className="grid md:grid-cols-2 gap-6">
-          {/* KPIs */}
           <div>
             <div className="font-semibold mb-2">KPIs visibles</div>
             {kpiOrder.map((id) => (
@@ -818,7 +1034,6 @@ export default function ExpenseTracker() {
             ))}
           </div>
 
-          {/* Iconos por categoría */}
           <div>
             <div className="font-semibold mb-2">Iconos por categoría (usa emojis)</div>
             {["alimentos","servicios","transporte","vivienda","salud","entretenimiento","otros","ingresos","ahorro","transfer"].map((c) => (
@@ -832,7 +1047,6 @@ export default function ExpenseTracker() {
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setCustomizeOpen(false)}>Listo</Button></div>
       </Modal>
 
-      {/* Modal: Nuevo objetivo de ahorro (usa goalOpen y addGoal) */}
       <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="Nuevo objetivo de ahorro">
         <div className="grid gap-3">
           <Input placeholder="Nombre (ej: Viaje, Fondo emergencia)" value={newGoalName} onChange={(e: Inp) => setNewGoalName(e.target.value)} />
@@ -845,12 +1059,75 @@ export default function ExpenseTracker() {
         </div>
       </Modal>
 
-      {/* Ayuda flotante */}
+      {/* Ayuda flotante (soporte) */}
       <button
         aria-label="Ayuda"
         onClick={() => alert("Escríbenos: soporte@gastopro.app")}
         className="fixed bottom-6 right-6 z-40 rounded-full p-3 shadow-lg bg-indigo-600 text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       ><HelpCircle className="w-5 h-5" /></button>
+
+      {/* Asistente financiero (burbuja + panel) */}
+      <button
+        aria-label="Asistente"
+        onClick={() => setChatOpen(true)}
+        className="fixed bottom-20 right-6 z-40 rounded-full p-3 shadow-lg bg-cyan-600 text-white hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+      ><MessageCircle className="w-5 h-5" /></button>
+
+      {chatOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setChatOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-700 flex flex-col">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="font-semibold">Asistente financiero</div>
+              <button className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setChatOpen(false)}><X className="w-4 h-4" /></button>
+            </div>
+
+            <div ref={chatListRef} className="flex-1 overflow-auto p-3 space-y-3">
+              {chat.length === 0 && (
+                <div className="text-sm text-slate-600 dark:text-slate-300">
+                  👋 Hola, pregúntame: “¿Cómo voy este mes?”, “¿Gasto más que el mes pasado?”, “Sugerencias”, “¿Racha?” o escribe <code>/ayuda</code>.
+                </div>
+              )}
+              {chat.map((m) => (
+                <div key={m.id} className={cx(
+                  "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
+                  m.role === "user"
+                    ? "bg-indigo-600 text-white ml-auto"
+                    : "bg-slate-100 dark:bg-slate-800 dark:text-slate-100"
+                )}>
+                  <div style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
+                  {m.actions && m.actions.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {m.actions.map(a => (
+                        <button key={a.id}
+                          onClick={() => handleChatAction({ id: a.id, payload: a.payload })}
+                          className="text-xs rounded-xl px-2 py-1 bg-white/90 dark:bg-slate-700 hover:bg-white shadow ring-1 ring-slate-200 dark:ring-slate-600"
+                        >{a.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="px-3 pb-3">
+              <div className="flex flex-wrap gap-2 mb-2">
+                <Button variant="neutral" onClick={()=>handleUserText("¿Cómo voy este mes?")}>📊 Resumen</Button>
+                <Button variant="neutral" onClick={()=>handleUserText("¿Gasto más que el mes pasado?")}>📈 Comparativa</Button>
+                <Button variant="neutral" onClick={()=>handleUserText("¿En qué categoría me pasé?")}>⚠️ Presupuesto</Button>
+                <Button variant="neutral" onClick={()=>handleUserText("¿Cuánto llevo ahorrado? ¿Racha?")}>🐷 Ahorro</Button>
+              </div>
+              <form onSubmit={(e)=>{e.preventDefault(); handleUserText(chatInput); setChatInput("");}}>
+                <div className="flex gap-2">
+                  <Input placeholder='Escribe… (ej: "si reduzco alimentos 10%") o /ayuda'
+                         value={chatInput} onChange={(e: Inp)=>setChatInput(e.target.value)} />
+                  <Button type="submit">Enviar</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       <Toast open={toastOpen} message={toastMsg} onClose={() => setToastOpen(false)} />
