@@ -6,14 +6,12 @@ import {
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 
-// --- tipos cortos para eventos (evita TS7006) ---
 type Inp = React.ChangeEvent<HTMLInputElement>;
 type Sel = React.ChangeEvent<HTMLSelectElement>;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const cx = (...a: any[]) => a.filter(Boolean).join(" ");
 
-// ---------- UI PRIMITIVES ----------
 const Button = ({ variant = "primary", className = "", children, ...p }: any) => (
   <button
     {...p}
@@ -59,7 +57,6 @@ const Modal = ({ open, onClose, title, children }: any) =>
     </div>
   );
 
-// --- Toast simple ---
 function Toast({ open, message, onClose }: { open: boolean; message: string; onClose: () => void }) {
   if (!open) return null;
   return (
@@ -72,7 +69,6 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
   );
 }
 
-// ---------- STORAGE ----------
 function useLocalStorage<T>(key: string, initial: T) {
   const [v, setV] = useState<T>(() => {
     try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : initial; } catch { return initial; }
@@ -81,31 +77,20 @@ function useLocalStorage<T>(key: string, initial: T) {
   return [v, setV] as const;
 }
 
-// ---------- UTILS ----------
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#7c3aed", "#06b6d4", "#f97316", "#22c55e"];
 const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
-// ---------- Tipos ----------
 type SavingsGoal = { id: string; name: string; target: number; balance: number; emoji: string };
 type ThemeMode = "light" | "dark" | "minimal" | "retro8" | "gold";
 type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
+type ChatMsg = { id: string; role: "user" | "assistant"; text: string; actions?: { id: string; label: string; payload?: any }[] };
 
-type ChatMsg = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  actions?: { id: string; label: string; payload?: any }[];
-};
-
-// ---------- App ----------
 export default function ExpenseTracker() {
-  // Preferencias
   const [themeMode, setThemeMode] = useLocalStorage<ThemeMode>("gastopro.themeMode", "light");
-  const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light"); // compat dark
+  const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light");
   const [currency, setCurrency] = useLocalStorage<"CLP" | "USD" | "EUR">("gastopro.currency", "CLP");
 
-  // Datos base
   const [items, setItems] = useLocalStorage<any[]>("gastopro.tx", []);
   const [accounts, setAccounts] = useLocalStorage<{ id: string; name: string }[]>("gastopro.accounts", [
     { id: "cash", name: "Efectivo" },
@@ -118,22 +103,17 @@ export default function ExpenseTracker() {
   const [templates, setTemplates] = useLocalStorage<any[]>("gastopro.recurring", []);
   const [presets, setPresets] = useLocalStorage<any>("gastopro.presets", { type: "expense", category: "alimentos", accountId: "cash" });
 
-  // Ahorros
   const [goals, setGoals] = useLocalStorage<SavingsGoal[]>("gastopro.goals", []);
-
-  // Personalización categoría → icono
   const [catIcons, setCatIcons] = useLocalStorage<Record<string, string>>("gastopro.catIcons", {
     alimentos: "🍔", servicios: "💡", transporte: "🚗", vivienda: "🏠", salud: "🩺", entretenimiento: "🎮", otros: "🧩",
     ingresos: "💼", ahorro: "🐷", transfer: "🔁"
   });
 
-  // Dashboard flexible (KPIs)
   const [kpiOrder, setKpiOrder] = useLocalStorage<KpiId[]>("gastopro.dashboard.kpis", ["ingresos", "gastos", "saldo", "proyeccion"]);
   const [kpiVisible, setKpiVisible] = useLocalStorage<Record<KpiId, boolean>>("gastopro.dashboard.kpis.visible", {
     ingresos: true, gastos: true, saldo: true, proyeccion: true
   });
 
-  // UI / estado
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [type, setType] = useState<"expense" | "income">(presets.type);
   const [cat, setCat] = useState<string>(presets.category);
@@ -163,11 +143,9 @@ export default function ExpenseTracker() {
   const [toastMsg, setToastMsg] = useState("");
   const [toastOpen, setToastOpen] = useState(false);
 
-  // Modales de personalización
   const [themeOpen, setThemeOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // -------- Asistente financiero (local) --------
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
@@ -185,12 +163,10 @@ export default function ExpenseTracker() {
   const searchRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Dark class (para tailwind dark:)
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark" || themeMode === "dark");
   }, [theme, themeMode]);
 
-  // Formateador moneda
   const fmt = useMemo(
     () => new Intl.NumberFormat(
       currency === "CLP" ? "es-CL" : currency === "USD" ? "en-US" : "de-DE",
@@ -199,7 +175,6 @@ export default function ExpenseTracker() {
     [currency]
   );
 
-  // Atajos
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement)?.tagName;
@@ -213,12 +188,10 @@ export default function ExpenseTracker() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Scrolling del chat al final al recibir mensaje
   useEffect(() => {
     chatListRef.current?.scrollTo({ top: chatListRef.current.scrollHeight, behavior: "smooth" });
   }, [chatOpen, chat]);
 
-  // Helpers
   const ensureAccount = (id: string) => (accounts.some((a) => a.id === id) ? id : accounts[0]?.id || "cash");
 
   const add = (e?: React.FormEvent) => {
@@ -238,7 +211,6 @@ export default function ExpenseTracker() {
 
   const del = (id: string) => setItems((p) => p.filter((x) => x.id !== id));
 
-  // Filtros de mes
   const [y, m] = month.split("-").map(Number);
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 1);
@@ -255,7 +227,6 @@ export default function ExpenseTracker() {
     return txt.includes(q);
   });
 
-  // Recurrentes el día 1
   useEffect(() => {
     if (!templates.length) return;
     const first = `${month}-01`;
@@ -266,7 +237,6 @@ export default function ExpenseTracker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, templates]);
 
-  // Totales
   const totalIn  = inMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
   const totalOut = inMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
   const totalNet = totalIn - totalOut;
@@ -298,7 +268,6 @@ export default function ExpenseTracker() {
     return r;
   }, [inMonth]);
 
-  // Proyección
   const today = new Date();
   const dim = daysInMonth(y, m - 1);
   const isCurrent = today.getFullYear() === y && today.getMonth() + 1 === m;
@@ -306,7 +275,6 @@ export default function ExpenseTracker() {
   const avgDaily = dayIdx ? totalNet / dayIdx : 0;
   const projected = Math.round(avgDaily * dim);
 
-  // Cuentas
   const accountBalance = (id: string) =>
     items.reduce((acc: number, t: any) => {
       const a = t.amount || 0;
@@ -315,7 +283,6 @@ export default function ExpenseTracker() {
     }, 0);
   const totalsByAccount = accounts.map((a) => ({ id: a.id, name: a.name, balance: accountBalance(a.id) }));
 
-  // Export/Import
   const downloadJSON = () => {
     const blob = new Blob([JSON.stringify({ items, budgets, templates, accounts, goals, catIcons, kpiOrder, kpiVisible, themeMode }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `gastopro-${month}.json`; a.click(); URL.revokeObjectURL(url);
@@ -348,7 +315,6 @@ export default function ExpenseTracker() {
   const renameAccount = (id: string, name: string) => setAccounts((p) => p.map((a) => (a.id === id ? { ...a, name } : a)));
   const removeAccount = (id: string) => { if (items.some((t) => t.accountId === id)) return alert("No puedes eliminar una cuenta con movimientos."); setAccounts((p) => p.filter((a) => a.id !== id)); };
 
-  // Transferencias
   const submitTransfer = (e: React.FormEvent) => {
     e.preventDefault();
     const n = Number(transferAmt); if (!n || fromAcc === toAcc) return alert("Verifica cuentas y monto");
@@ -359,7 +325,6 @@ export default function ExpenseTracker() {
     setToastMsg("🔁 Transferencia registrada"); setToastOpen(true); setTimeout(() => setToastOpen(false), 2500);
   };
 
-  // -------- GAMIFICACIÓN --------
   const isSavingsTx = (t: any) => t.type === "expense" && t.category === "ahorro";
   const totalSavedAllTime = useMemo(
     () => items.filter(isSavingsTx).reduce((a: number, b: any) => a + (b.amount || 0), 0),
@@ -408,7 +373,6 @@ export default function ExpenseTracker() {
     { id: "over20", title: "Superaste tu meta en 20%", ok: anyGoal20 },
   ];
 
-  // -------- Ahorros --------
   const addGoal = () => {
     const name = newGoalName.trim(); const target = Number(newGoalTarget);
     if (!name || !target) return alert("Completa nombre y meta (número mayor a 0).");
@@ -432,7 +396,6 @@ export default function ExpenseTracker() {
     setToastMsg(`🎯 ¡Ahorro agregado! ${phrase} (${pDone}%)`); setToastOpen(true); setTimeout(() => setToastOpen(false), 3000);
   };
 
-  // ---------- THEME PRESETS ----------
   const headerClass = (() => {
     switch (themeMode) {
       case "dark":    return "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 text-white";
@@ -453,7 +416,6 @@ export default function ExpenseTracker() {
   };
   const toggleKpi = (id: KpiId) => setKpiVisible((v) => ({ ...v, [id]: !v[id] }));
 
-  // ---------- ASISTENTE: lógica de intents ----------
   const monthLabel = `${y}-${String(m).padStart(2, "0")}`;
   const lastMonth = new Date(y, m - 2, 1);
   const lastStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
@@ -462,15 +424,10 @@ export default function ExpenseTracker() {
     const d = new Date((t.date || "") + "T00:00:00");
     return d >= lastStart && d < lastEnd;
   });
-  // const lastIn  = inLastMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0); // (eliminado: no usado)
   const lastOut = inLastMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
 
-  function chatPushUser(text: string) {
-    setChat((c) => [...c, { id: uid(), role: "user", text }]);
-  }
-  function chatPushAssistant(text: string, actions?: ChatMsg["actions"]) {
-    setChat((c) => [...c, { id: uid(), role: "assistant", text, actions }]);
-  }
+  function chatPushUser(text: string) { setChat((c) => [...c, { id: uid(), role: "user", text }]); }
+  function chatPushAssistant(text: string, actions?: ChatMsg["actions"]) { setChat((c) => [...c, { id: uid(), role: "assistant", text, actions }]); }
 
   function intentResumen() {
     const top = [...byCat].slice(0, 1)[0];
@@ -480,7 +437,6 @@ export default function ExpenseTracker() {
       { id: "ajuste_presupuesto", label: "⚙️ Ajustar presupuesto", payload: { cat: top?.name || "alimentos" } },
     ]);
   }
-
   function intentComparativa() {
     const delta = totalOut - lastOut;
     const pctDelta = lastOut > 0 ? Math.round((delta / lastOut) * 100) : 0;
@@ -488,7 +444,6 @@ export default function ExpenseTracker() {
     const txt = `📈 Comparativa vs mes pasado\nGastos: ${fmt(totalOut)} (${s})\nMes pasado: ${fmt(lastOut)}`;
     chatPushAssistant(txt, [{ id: "ver_top_desvios", label: "🔍 Ver top desvíos" }]);
   }
-
   function intentPresupuesto() {
     const overruns = Object.keys(budgets).map((k) => {
       const spent = spentById[k] || 0;
@@ -507,24 +462,19 @@ export default function ExpenseTracker() {
       { id: "ajustar_meta_a_gasto", label: "🧮 Igualar meta al gasto", payload: { cat: top.k } },
     ]);
   }
-
   function intentAhorroRacha() {
     const txt = `🐷 Ahorro total histórico: ${fmt(totalSavedAllTime)}\n🔥 Racha de ahorro: ${streakDays} ${streakDays===1?"día":"días"}\nReto semanal: llevas ${fmt(savedThisWeek)} / meta ${fmt(weeklyTarget)} (${weeklyProgressPct}%)`;
     chatPushAssistant(txt, [{ id: "crear_meta", label: "🎯 Crear meta" }]);
   }
-
   function intentSugerencias() {
     const top = [...byCat].slice(0,3);
     const tips = top.map(t => `• ${t.name}: reduce 10% → ahorras ~${fmt(Math.round(t.value*0.10))}`).join("\n");
     chatPushAssistant(`🧠 Ideas rápidas para recortar:\n${tips}\n\n¿Quieres simular algún porcentaje en una categoría?`);
   }
-
   function intentSimulacion(text: string) {
-    // soporta "si reduzco alimentos 10%" o "/simular alimentos 10"
     const m = text.toLowerCase().match(/(reduc[io]?[sz]o?|simul[ao]r?)\s+([a-záéíóú]+)\s+(\d{1,2}|100)/i);
     if (!m) { chatPushAssistant("Escribe: `si reduzco <categoría> <porcentaje>%` (ej: si reduzco alimentos 10%)"); return; }
     const catName = m[2].normalize("NFD").replace(/\p{Diacritic}/gu,"");
-    // buscar categoría aproximada (simple)
     const cats = Object.keys(spentById);
     const found = cats.find(c => c.startsWith(catName)) || cats.find(c => c.includes(catName)) || m[2];
     const base = spentById[found] || 0;
@@ -535,7 +485,6 @@ export default function ExpenseTracker() {
       { id: "ajustar_presupuesto_pct", label: `⚙️ Subir meta ${found} -${p}%`, payload: { cat: found, pct: p } }
     ]);
   }
-
   function intentAyuda() {
     chatPushAssistant(
 `🤖 Puedo ayudarte con:
@@ -557,7 +506,6 @@ Comandos:
       ]
     );
   }
-
   function parseCommand(text: string) {
     if (text.startsWith("/agregar")) {
       const p = text.split(" ").slice(1);
@@ -597,17 +545,11 @@ Comandos:
     }
     chatPushAssistant("No entendí el comando. Escribe `/ayuda` para ver opciones.");
   }
-
   function handleUserText(raw: string) {
     const text = raw.trim();
     if (!text) return;
     chatPushUser(text);
-
-    if (text.startsWith("/")) {
-      if (text === "/ayuda") { intentAyuda(); return; }
-      parseCommand(text); return;
-    }
-
+    if (text.startsWith("/")) { if (text === "/ayuda") { intentAyuda(); return; } parseCommand(text); return; }
     const t = text.toLowerCase();
     if (t.includes("cómo voy") || t.includes("resumen")) { intentResumen(); return; }
     if (t.includes("comparativa") || t.includes("mes pasado") || t.includes("gasto más")) { intentComparativa(); return; }
@@ -615,10 +557,8 @@ Comandos:
     if (t.includes("ahorr") || t.includes("racha")) { intentAhorroRacha(); return; }
     if (t.includes("sugerenc") || t.includes("recortar") || t.includes("ideas")) { intentSugerencias(); return; }
     if (t.includes("reduz") || t.includes("reduci") || t.includes("simul")) { intentSimulacion(text); return; }
-
     intentAyuda();
   }
-
   function handleChatAction(a: { id: string; payload?: any }) {
     if (a.id === "dl_csv") { downloadCSV(); chatPushAssistant("📎 CSV descargado."); return; }
     if (a.id === "ajuste_presupuesto" && a.payload?.cat) {
@@ -652,25 +592,25 @@ Comandos:
       chatPushAssistant(`⚙️ Meta de **${c}** ajustada -${p}% → ${fmt(n)}`);
       return;
     }
-    if (a.id === "crear_meta") {
-      setGoalOpen(true);
-      chatPushAssistant("Abriendo formulario para nueva meta…");
-      return;
-    }
+    if (a.id === "crear_meta") { setGoalOpen(true); chatPushAssistant("Abriendo formulario para nueva meta…"); return; }
     if (a.id === "quick_resumen") { intentResumen(); return; }
     if (a.id === "quick_comparativa") { intentComparativa(); return; }
     if (a.id === "quick_presupuesto") { intentPresupuesto(); return; }
     if (a.id === "quick_ahorro") { intentAhorroRacha(); return; }
   }
 
-  // ---------- RENDER ----------
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
-      <section className={cx(headerClass)}>
+      <section className={cx(
+        themeMode === "dark"    ? "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 text-white" :
+        themeMode === "minimal" ? "bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900" :
+        themeMode === "retro8"  ? "bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-slate-900 [image-rendering:pixelated]" :
+        themeMode === "gold"    ? "bg-gradient-to-br from-yellow-400 via-amber-500 to-orange-600 text-white" :
+                                  "bg-gradient-to-br from-indigo-600 via-sky-500 to-cyan-400 text-white"
+      )}>
         <div className="max-w-6xl mx-auto px-6 py-10">
           <div className="flex items-center justify-between gap-3">
             <h1 className={cx("text-3xl font-bold", themeMode === "retro8" ? "tracking-wider" : "")}>GastoPro</h1>
-
             <div className="flex items-center gap-2">
               <Button variant="neutral" onClick={() => setThemeOpen(true)} title="Temas">
                 <Brush className="w-4 h-4" /> Tema
@@ -686,24 +626,25 @@ Comandos:
               </Button>
             </div>
           </div>
-
           <p className={cx("mt-2", themeMode === "minimal" ? "text-slate-700" : "text-white/90")}>
             Control profesional de gastos con metas, gráficos, cuentas, transferencias, ahorro, gamificación y personalización total.
           </p>
-
-          {/* KPIs configurables */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            {kpiOrder.filter((id) => kpiVisible[id]).map((id) => (
+            {(["ingresos","gastos","saldo","proyeccion"] as KpiId[]).filter((id) => kpiVisible[id]).map((id) => (
               <Card key={id}>
                 <div className="p-3">
                   <div className="flex items-center justify-between">
-                    <div className="opacity-90">{kpiLabel[id]}</div>
+                    <div className="opacity-90">{({ingresos:"Ingresos",gastos:"Gastos",saldo:"Saldo",proyeccion:"Proyección"} as any)[id]}</div>
                     <div className="flex gap-1">
-                      <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
-                      <button title="Bajar" onClick={() => moveKpi(id, 1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+                      <button title="Subir" onClick={() => {
+                        const idx = kpiOrder.indexOf(id); if (idx>0) { const arr=[...kpiOrder]; [arr[idx-1],arr[idx]]=[arr[idx],arr[idx-1]]; setKpiOrder(arr); }
+                      }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
+                      <button title="Bajar" onClick={() => {
+                        const idx = kpiOrder.indexOf(id); if (idx>=0 && idx<kpiOrder.length-1) { const arr=[...kpiOrder]; [arr[idx+1],arr[idx]]=[arr[idx],arr[idx+1]]; setKpiOrder(arr); }
+                      }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
                     </div>
                   </div>
-                  <div className="text-xl font-semibold">{fmt(kpiValue[id])}</div>
+                  <div className="text-xl font-semibold">{fmt(({ingresos:totalIn,gastos:totalOut,saldo:totalNet,proyeccion:projected} as any)[id])}</div>
                 </div>
               </Card>
             ))}
@@ -712,7 +653,6 @@ Comandos:
       </section>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
-        {/* Cuentas */}
         <Card>
           <div className="p-4 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 font-medium"><Wallet className="w-5 h-5" /> Cuentas</div>
@@ -729,7 +669,6 @@ Comandos:
           </div>
         </Card>
 
-        {/* Gamificación */}
         <Card>
           <div className="p-4 space-y-4">
             <div className="flex items-center gap-2"><Flame className="w-5 h-5 text-orange-500" /><div className="font-semibold">Racha de ahorro</div>
@@ -737,7 +676,9 @@ Comandos:
             </div>
             <div className="flex items-center gap-2"><Award className="w-5 h-5 text-indigo-500" /><div className="font-semibold">Logros</div></div>
             <div className="grid sm:grid-cols-3 gap-3">
-              {achievements.map((a) => (
+              {[{ id: "streak7", title: "Ahorraste 7 días seguidos", ok: streakDays >= 7 },
+                { id: "firstMillion", title: "Primer millón ahorrado", ok: totalSavedAllTime >= 1_000_000 },
+                { id: "over20", title: "Superaste tu meta en 20%", ok: goals.some(g=>g.target>0 && g.balance>=g.target*1.2) }].map((a) => (
                 <div key={a.id} className={cx("rounded-xl p-3 border text-sm",
                   a.ok ? "border-green-300 bg-green-50 dark:bg-green-900/30 dark:border-green-700" : "border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50"
                 )}>
@@ -750,8 +691,6 @@ Comandos:
                 </div>
               ))}
             </div>
-
-            {/* Reto semanal */}
             <div className="flex items-center gap-2"><Target className="w-5 h-5 text-cyan-500" /><div className="font-semibold">Reto semanal: +10% que la semana pasada</div></div>
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
               <div className="text-sm text-slate-700 dark:text-slate-300">
@@ -765,14 +704,12 @@ Comandos:
           </div>
         </Card>
 
-        {/* Objetivos de ahorro */}
         <Card>
           <div className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2 font-semibold">🎯 Objetivos de ahorro</div>
               <Button variant="neutral" onClick={() => setGoalOpen(true)}>Nuevo objetivo</Button>
             </div>
-
             {goals.length === 0 ? (
               <div className="text-sm text-slate-600 dark:text-slate-300">No tienes objetivos aún. Crea uno con “Nuevo objetivo” y empieza a construir tu libertad financiera 🚀</div>
             ) : (
@@ -791,7 +728,6 @@ Comandos:
                       </div>
                       <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{fmt(g.balance)} / {fmt(g.target)} — {progress}%</div>
                       <div className="mt-2 h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden"><div className={cx("h-2", barCls)} style={{ width: `${progress}%` }} /></div>
-
                       <div className="mt-3 grid grid-cols-5 gap-2 items-center">
                         <div className="col-span-2">
                           <Input type="number" inputMode="numeric" placeholder="Monto" value={depositInput[g.id] ?? ""} onChange={(e: Inp) => setDepositInput((s) => ({ ...s, [g.id]: e.target.value }))} />
@@ -815,7 +751,6 @@ Comandos:
           </div>
         </Card>
 
-        {/* Form + filtros/descargas */}
         <Card>
           <form ref={formRef} onSubmit={add} className="p-4 grid lg:grid-cols-8 gap-3">
             <select value={type} onChange={(e: Sel) => setType(e.target.value as "expense" | "income")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700">
@@ -836,7 +771,6 @@ Comandos:
             </label>
             <Button type="submit"><Plus className="w-4 h-4" /> Guardar</Button>
           </form>
-
           <div className="px-4 pb-4 grid md:grid-cols-4 gap-3">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4" />
@@ -856,15 +790,12 @@ Comandos:
           </div>
         </Card>
 
-        {/* Gráficos */}
         <div className="grid lg:grid-cols-3 gap-4 items-stretch">
           <Card>
             <div className="p-4 h-[300px]">
               <ResponsiveContainer width="100%" height="100%"><PieChart>
                 <Pie data={byCat} dataKey="value" nameKey="name" outerRadius={110} label>
-                  {byCat.map((seg, i) => (
-                    <Cell key={seg.name ?? i} fill={COLORS[i % COLORS.length]} />
-                  ))}
+                  {byCat.map((seg, i) => (<Cell key={seg.name ?? i} fill={COLORS[i % COLORS.length]} />))}
                 </Pie>
                 <Tooltip formatter={(v: any) => fmt(v)} />
               </PieChart></ResponsiveContainer>
@@ -885,7 +816,6 @@ Comandos:
           </Card>
         </div>
 
-        {/* Tabla movimientos */}
         <Card>
           <div className="p-4 overflow-auto">
             <table className="w-full text-sm">
@@ -930,7 +860,7 @@ Comandos:
           </div>
         </Card>
 
-        {/* Metas por categoría */}
+        {/* METAS POR CATEGORÍA (semáforo corregido) */}
         <Card>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3"><Wallet className="w-5 h-5" /><div className="font-semibold">Metas por categoría</div></div>
@@ -938,7 +868,8 @@ Comandos:
               {"alimentos,servicios,transporte,vivienda,salud,entretenimiento,otros".split(",").map((id) => {
                 const spent = spentById[id] || 0; const b = budgets[id] || 0;
                 const ratio = b > 0 ? spent / b : 0; const bar = Math.min(100, Math.round(ratio * 100));
-                const cls = ratio >= 1 ? "bg-green-500" : ratio >= 0.8 ? "bg-amber-500" : "bg-red-500";
+                // 🔴 >100% rojo, 🟠 80–100% ámbar, 🟢 <80% verde
+                const cls = ratio > 1 ? "bg-red-500" : ratio >= 0.8 ? "bg-amber-500" : "bg-green-500";
                 const icon = catIcons[id] || "";
                 return (
                   <div key={id} className="rounded-xl border border-slate-200/70 dark:border-slate-700 p-3 bg-white/80 dark:bg-slate-900/60">
@@ -963,7 +894,6 @@ Comandos:
         Hecho contigo 💙 · Tus datos quedan en tu navegador
       </footer>
 
-      {/* Modales */}
       <Modal open={accOpen} onClose={() => setAccOpen(false)} title="Administrar cuentas">
         <div className="space-y-2">
           {accounts.map((a) => (
@@ -1024,11 +954,15 @@ Comandos:
               <div key={id} className="flex items-center justify-between p-2 rounded-xl border border-slate-200 dark:border-slate-700 mb-2">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={!!kpiVisible[id]} onChange={() => toggleKpi(id)} />
-                  <span>{kpiLabel[id]}</span>
+                  <span>{({ingresos:"Ingresos",gastos:"Gastos",saldo:"Saldo",proyeccion:"Proyección"} as any)[id]}</span>
                 </label>
                 <div className="flex gap-1">
-                  <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
-                  <button title="Bajar" onClick={() => moveKpi(id, 1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+                  <button title="Subir" onClick={() => {
+                    const idx = kpiOrder.indexOf(id); if (idx>0) { const arr=[...kpiOrder]; [arr[idx-1],arr[idx]]=[arr[idx],arr[idx-1]]; setKpiOrder(arr); }
+                  }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
+                  <button title="Bajar" onClick={() => {
+                    const idx = kpiOrder.indexOf(id); if (idx>=0 && idx<kpiOrder.length-1) { const arr=[...kpiOrder]; [arr[idx+1],arr[idx]]=[arr[idx],arr[idx+1]]; setKpiOrder(arr); }
+                  }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
                 </div>
               </div>
             ))}
@@ -1047,26 +981,12 @@ Comandos:
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setCustomizeOpen(false)}>Listo</Button></div>
       </Modal>
 
-      <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="Nuevo objetivo de ahorro">
-        <div className="grid gap-3">
-          <Input placeholder="Nombre (ej: Viaje, Fondo emergencia)" value={newGoalName} onChange={(e: Inp) => setNewGoalName(e.target.value)} />
-          <Input type="number" inputMode="numeric" placeholder="Meta (monto total)" value={newGoalTarget} onChange={(e: Inp) => setNewGoalTarget(e.target.value)} />
-          <Input placeholder="Emoji (opcional, ej: ✈️ 🏠 🚗)" value={newGoalEmoji} onChange={(e: Inp) => setNewGoalEmoji(e.target.value)} />
-          <div className="flex justify-end gap-2">
-            <Button variant="neutral" onClick={() => setGoalOpen(false)}>Cancelar</Button>
-            <Button onClick={addGoal}>Crear</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Ayuda flotante (soporte) */}
       <button
         aria-label="Ayuda"
         onClick={() => alert("Escríbenos: soporte@gastopro.app")}
         className="fixed bottom-6 right-6 z-40 rounded-full p-3 shadow-lg bg-indigo-600 text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       ><HelpCircle className="w-5 h-5" /></button>
 
-      {/* Asistente financiero (burbuja + panel) */}
       <button
         aria-label="Asistente"
         onClick={() => setChatOpen(true)}
@@ -1081,7 +1001,6 @@ Comandos:
               <div className="font-semibold">Asistente financiero</div>
               <button className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => setChatOpen(false)}><X className="w-4 h-4" /></button>
             </div>
-
             <div ref={chatListRef} className="flex-1 overflow-auto p-3 space-y-3">
               {chat.length === 0 && (
                 <div className="text-sm text-slate-600 dark:text-slate-300">
@@ -1109,7 +1028,6 @@ Comandos:
                 </div>
               ))}
             </div>
-
             <div className="px-3 pb-3">
               <div className="flex flex-wrap gap-2 mb-2">
                 <Button variant="neutral" onClick={()=>handleUserText("¿Cómo voy este mes?")}>📊 Resumen</Button>
@@ -1129,7 +1047,6 @@ Comandos:
         </div>
       )}
 
-      {/* Toast */}
       <Toast open={toastOpen} message={toastMsg} onClose={() => setToastOpen(false)} />
     </div>
   );
