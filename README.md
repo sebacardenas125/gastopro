@@ -1,69 +1,42 @@
-# React + TypeScript + Vite
+# 💰 GastoPro
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**GastoPro** es una app web moderna para gestionar tus finanzas personales.  
+Registra ingresos y gastos, administra múltiples cuentas, realiza transferencias y define presupuestos con gráficos interactivos.
 
-Currently, two official plugins are available:
+🌐 **Demo online:** [gastopro.vercel.app](https://gastopro.vercel.app/)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+## ✨ Características
+- Registro rápido de ingresos y gastos
+- Gestión de múltiples cuentas y transferencias
+- Presupuestos con indicadores de progreso
+- Gráficos dinámicos (categorías e historial)
+- Exportación de datos a JSON y CSV
+- Modo claro/oscuro automático
+- Tus datos permanecen **100% en tu navegador**
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 🛠️ Tecnologías
+- [React](https://react.dev/)
+- [Vite](https://vitejs.dev/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [Recharts](https://recharts.org/)
+- [Lucide Icons](https://lucide.dev/)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+---
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🚀 Despliegue
+La app está desplegada en [Vercel](https://vercel.com/).  
+Cada push a la rama `main` en GitHub genera un deploy automático.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+---
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 📸 Captura
+![Screenshot](public/gastopro.png)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
+
+## 👨‍💻 Autor
+Desarrollada con 💙 por [sebacardenas125](https://github.com/sebacardenas125).
