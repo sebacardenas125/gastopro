@@ -396,208 +396,11 @@ export default function ExpenseTracker() {
     setToastMsg(`🎯 ¡Ahorro agregado! ${phrase} (${pDone}%)`); setToastOpen(true); setTimeout(() => setToastOpen(false), 3000);
   };
 
-  const headerClass = (() => {
-    switch (themeMode) {
-      case "dark":    return "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 text-white";
-      case "minimal": return "bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900";
-      case "retro8":  return "bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-slate-900 [image-rendering:pixelated]";
-      case "gold":    return "bg-gradient-to-br from-yellow-400 via-amber-500 to-orange-600 text-white";
-      default:        return "bg-gradient-to-br from-indigo-600 via-sky-500 to-cyan-400 text-white";
-    }
-  })();
-
-  const kpiLabel: Record<KpiId, string> = { ingresos: "Ingresos", gastos: "Gastos", saldo: "Saldo", proyeccion: "Proyección" };
-  const kpiValue: Record<KpiId, number> = { ingresos: totalIn, gastos: totalOut, saldo: totalNet, proyeccion: projected };
-
   const moveKpi = (id: KpiId, dir: -1 | 1) => {
     const idx = kpiOrder.indexOf(id); if (idx < 0) return;
     const ni = idx + dir; if (ni < 0 || ni >= kpiOrder.length) return;
     const arr = [...kpiOrder]; [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; setKpiOrder(arr);
   };
-  const toggleKpi = (id: KpiId) => setKpiVisible((v) => ({ ...v, [id]: !v[id] }));
-
-  const monthLabel = `${y}-${String(m).padStart(2, "0")}`;
-  const lastMonth = new Date(y, m - 2, 1);
-  const lastStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
-  const lastEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1);
-  const inLastMonth = items.filter((t) => {
-    const d = new Date((t.date || "") + "T00:00:00");
-    return d >= lastStart && d < lastEnd;
-  });
-  const lastOut = inLastMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
-
-  function chatPushUser(text: string) { setChat((c) => [...c, { id: uid(), role: "user", text }]); }
-  function chatPushAssistant(text: string, actions?: ChatMsg["actions"]) { setChat((c) => [...c, { id: uid(), role: "assistant", text, actions }]); }
-
-  function intentResumen() {
-    const top = [...byCat].slice(0, 1)[0];
-    const txt = `📊 ${monthLabel}\nIngresos: ${fmt(totalIn)}\nGastos: ${fmt(totalOut)}\nSaldo: ${fmt(totalNet)}${top ? `\nMayor gasto: ${top.name} (${fmt(top.value)})` : ""}`;
-    chatPushAssistant(txt, [
-      { id: "dl_csv", label: "⬇️ Descargar CSV" },
-      { id: "ajuste_presupuesto", label: "⚙️ Ajustar presupuesto", payload: { cat: top?.name || "alimentos" } },
-    ]);
-  }
-  function intentComparativa() {
-    const delta = totalOut - lastOut;
-    const pctDelta = lastOut > 0 ? Math.round((delta / lastOut) * 100) : 0;
-    const s = delta === 0 ? "igual que" : delta > 0 ? `↑ ${pctDelta}% más que` : `↓ ${Math.abs(pctDelta)}% menos que`;
-    const txt = `📈 Comparativa vs mes pasado\nGastos: ${fmt(totalOut)} (${s})\nMes pasado: ${fmt(lastOut)}`;
-    chatPushAssistant(txt, [{ id: "ver_top_desvios", label: "🔍 Ver top desvíos" }]);
-  }
-  function intentPresupuesto() {
-    const overruns = Object.keys(budgets).map((k) => {
-      const spent = spentById[k] || 0;
-      const b = budgets[k] || 0;
-      const ratio = b > 0 ? spent / b : 0;
-      return { k, spent, b, ratio };
-    }).filter(x => x.b > 0 && x.spent > x.b).sort((a,b)=> b.ratio - a.ratio);
-    if (!overruns.length) {
-      chatPushAssistant("✅ No superaste ninguna meta de categoría este mes.");
-      return;
-    }
-    const top = overruns[0];
-    const txt = `⚠️ Te pasaste en: ${top.k} → ${fmt(top.spent)} / ${fmt(top.b)} (${pct(top.spent, top.b)}%)`;
-    chatPushAssistant(txt, [
-      { id: "subir_meta_10", label: "📈 Subir meta +10%", payload: { cat: top.k } },
-      { id: "ajustar_meta_a_gasto", label: "🧮 Igualar meta al gasto", payload: { cat: top.k } },
-    ]);
-  }
-  function intentAhorroRacha() {
-    const txt = `🐷 Ahorro total histórico: ${fmt(totalSavedAllTime)}\n🔥 Racha de ahorro: ${streakDays} ${streakDays===1?"día":"días"}\nReto semanal: llevas ${fmt(savedThisWeek)} / meta ${fmt(weeklyTarget)} (${weeklyProgressPct}%)`;
-    chatPushAssistant(txt, [{ id: "crear_meta", label: "🎯 Crear meta" }]);
-  }
-  function intentSugerencias() {
-    const top = [...byCat].slice(0,3);
-    const tips = top.map(t => `• ${t.name}: reduce 10% → ahorras ~${fmt(Math.round(t.value*0.10))}`).join("\n");
-    chatPushAssistant(`🧠 Ideas rápidas para recortar:\n${tips}\n\n¿Quieres simular algún porcentaje en una categoría?`);
-  }
-  function intentSimulacion(text: string) {
-    const m = text.toLowerCase().match(/(reduc[io]?[sz]o?|simul[ao]r?)\s+([a-záéíóú]+)\s+(\d{1,2}|100)/i);
-    if (!m) { chatPushAssistant("Escribe: `si reduzco <categoría> <porcentaje>%` (ej: si reduzco alimentos 10%)"); return; }
-    const catName = m[2].normalize("NFD").replace(/\p{Diacritic}/gu,"");
-    const cats = Object.keys(spentById);
-    const found = cats.find(c => c.startsWith(catName)) || cats.find(c => c.includes(catName)) || m[2];
-    const base = spentById[found] || 0;
-    const p = Number(m[3]);
-    const ahorro = Math.round(base * (p/100));
-    const nuevoSaldo = totalNet + ahorro;
-    chatPushAssistant(`🧪 Simulación\nReduciendo **${found}** en ${p}% ahorrarías ~${fmt(ahorro)}.\nSaldo proyectado: ${fmt(nuevoSaldo)}.`, [
-      { id: "ajustar_presupuesto_pct", label: `⚙️ Subir meta ${found} -${p}%`, payload: { cat: found, pct: p } }
-    ]);
-  }
-  function intentAyuda() {
-    chatPushAssistant(
-`🤖 Puedo ayudarte con:
-• "¿Cómo voy este mes?"
-• "¿Gasto más que el mes pasado?"
-• "¿En qué categoría me pasé?"
-• "¿Cuánto llevo ahorrado? ¿Racha?"
-• "Sugerencias" / "Qué puedo recortar"
-• "Si reduzco alimentos 10%" (simulación)
-Comandos:
-• /agregar <monto> <categoria> <nota>
-• /meta "<nombre>" <meta> [emoji]
-• /transferir <monto> <de> <a>`,
-      [
-        { id: "quick_resumen", label: "📊 Resumen" },
-        { id: "quick_comparativa", label: "📈 Comparativa" },
-        { id: "quick_presupuesto", label: "⚠️ Presupuesto" },
-        { id: "quick_ahorro", label: "🐷 Ahorro/Racha" },
-      ]
-    );
-  }
-  function parseCommand(text: string) {
-    if (text.startsWith("/agregar")) {
-      const p = text.split(" ").slice(1);
-      const monto = Number(p.shift() || 0);
-      const categoria = (p.shift() || "otros").toLowerCase();
-      const nota = p.join(" ");
-      if (!monto) { chatPushAssistant("Uso: /agregar <monto> <categoria> <nota>"); return; }
-      const row = {
-        id: uid(), date: new Date().toISOString().slice(0,10),
-        type: "expense", category: categoria, note: nota, amount: monto, tags: [], accountId: accounts[0]?.id || "cash"
-      };
-      setItems((prev)=>[row, ...prev]);
-      chatPushAssistant(`✅ Agregado: ${fmt(monto)} en ${categoria}${nota?` (${nota})`:""}`);
-      return;
-    }
-    if (text.startsWith("/meta")) {
-      const m = text.match(/\/meta\s+"([^"]+)"\s+(\d+)(?:\s+(\S+))?/);
-      if (!m) { chatPushAssistant('Uso: /meta "Nombre" <monto> [emoji]'); return; }
-      const name = m[1]; const target = Number(m[2]); const emoji = m[3] || "💸";
-      setGoals((g)=>[...g, { id: uid(), name, target, balance: 0, emoji }]);
-      chatPushAssistant(`🎯 Meta creada: ${name} → ${fmt(target)} ${emoji}`);
-      return;
-    }
-    if (text.startsWith("/transferir")) {
-      const p = text.split(" ").slice(1);
-      const monto = Number(p.shift()||0);
-      const de = p.shift(); const a = p.shift();
-      if (!monto || !de || !a) { chatPushAssistant("Uso: /transferir <monto> <cuenta_origen> <cuenta_destino>"); return; }
-      const origin = accounts.find(x=>x.name.toLowerCase().startsWith((de||"").toLowerCase()))?.id || accounts[0]?.id;
-      const dest   = accounts.find(x=>x.name.toLowerCase().startsWith((a||"").toLowerCase()))?.id || accounts[1]?.id || accounts[0]?.id;
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const outTx = { id: uid(), date: todayStr, type: "expense", category: "transfer", note: `Transferencia a ${dest}`, amount: monto, tags: ["transfer"], accountId: origin };
-      const inTx  = { id: uid(), date: todayStr, type: "income",  category: "transfer", note: `Transferencia desde ${origin}`, amount: monto, tags: ["transfer"], accountId: dest };
-      setItems((p)=>[outTx,inTx,...p]);
-      chatPushAssistant(`🔁 Transferencia registrada: ${fmt(monto)} de ${de} a ${a}`);
-      return;
-    }
-    chatPushAssistant("No entendí el comando. Escribe `/ayuda` para ver opciones.");
-  }
-  function handleUserText(raw: string) {
-    const text = raw.trim();
-    if (!text) return;
-    chatPushUser(text);
-    if (text.startsWith("/")) { if (text === "/ayuda") { intentAyuda(); return; } parseCommand(text); return; }
-    const t = text.toLowerCase();
-    if (t.includes("cómo voy") || t.includes("resumen")) { intentResumen(); return; }
-    if (t.includes("comparativa") || t.includes("mes pasado") || t.includes("gasto más")) { intentComparativa(); return; }
-    if (t.includes("presupuesto") || t.includes("categoría me pasé") || t.includes("me pasé")) { intentPresupuesto(); return; }
-    if (t.includes("ahorr") || t.includes("racha")) { intentAhorroRacha(); return; }
-    if (t.includes("sugerenc") || t.includes("recortar") || t.includes("ideas")) { intentSugerencias(); return; }
-    if (t.includes("reduz") || t.includes("reduci") || t.includes("simul")) { intentSimulacion(text); return; }
-    intentAyuda();
-  }
-  function handleChatAction(a: { id: string; payload?: any }) {
-    if (a.id === "dl_csv") { downloadCSV(); chatPushAssistant("📎 CSV descargado."); return; }
-    if (a.id === "ajuste_presupuesto" && a.payload?.cat) {
-      const c = a.payload.cat as string;
-      const spent = spentById[c] || 0;
-      setBudget(c, Math.max(budgets[c]||0, Math.round(spent*1.1)));
-      chatPushAssistant(`⚙️ Meta de **${c}** ajustada a ${fmt(Math.max(budgets[c]||0, Math.round(spent*1.1)))}`);
-      return;
-    }
-    if (a.id === "subir_meta_10" && a.payload?.cat) {
-      const c = a.payload.cat as string;
-      const b = budgets[c]||0;
-      const n = Math.round(b*1.10);
-      setBudget(c, n);
-      chatPushAssistant(`📈 Meta de **${c}** +10% → ${fmt(n)}`);
-      return;
-    }
-    if (a.id === "ajustar_meta_a_gasto" && a.payload?.cat) {
-      const c = a.payload.cat as string;
-      const spent = spentById[c] || 0;
-      setBudget(c, spent);
-      chatPushAssistant(`🧮 Meta de **${c}** igualada al gasto actual → ${fmt(spent)}`);
-      return;
-    }
-    if (a.id === "ajustar_presupuesto_pct" && a.payload?.cat) {
-      const c = a.payload.cat as string;
-      const p = Number(a.payload.pct||0);
-      const b = budgets[c]||0;
-      const n = Math.max(0, Math.round(b*(1 - p/100)));
-      setBudget(c, n);
-      chatPushAssistant(`⚙️ Meta de **${c}** ajustada -${p}% → ${fmt(n)}`);
-      return;
-    }
-    if (a.id === "crear_meta") { setGoalOpen(true); chatPushAssistant("Abriendo formulario para nueva meta…"); return; }
-    if (a.id === "quick_resumen") { intentResumen(); return; }
-    if (a.id === "quick_comparativa") { intentComparativa(); return; }
-    if (a.id === "quick_presupuesto") { intentPresupuesto(); return; }
-    if (a.id === "quick_ahorro") { intentAhorroRacha(); return; }
-  }
 
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
@@ -636,12 +439,8 @@ Comandos:
                   <div className="flex items-center justify-between">
                     <div className="opacity-90">{({ingresos:"Ingresos",gastos:"Gastos",saldo:"Saldo",proyeccion:"Proyección"} as any)[id]}</div>
                     <div className="flex gap-1">
-                      <button title="Subir" onClick={() => {
-                        const idx = kpiOrder.indexOf(id); if (idx>0) { const arr=[...kpiOrder]; [arr[idx-1],arr[idx]]=[arr[idx],arr[idx-1]]; setKpiOrder(arr); }
-                      }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
-                      <button title="Bajar" onClick={() => {
-                        const idx = kpiOrder.indexOf(id); if (idx>=0 && idx<kpiOrder.length-1) { const arr=[...kpiOrder]; [arr[idx+1],arr[idx]]=[arr[idx],arr[idx+1]]; setKpiOrder(arr); }
-                      }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+                      <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
+                      <button title="Bajar" onClick={() => moveKpi(id, +1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="text-xl font-semibold">{fmt(({ingresos:totalIn,gastos:totalOut,saldo:totalNet,proyeccion:projected} as any)[id])}</div>
@@ -676,9 +475,7 @@ Comandos:
             </div>
             <div className="flex items-center gap-2"><Award className="w-5 h-5 text-indigo-500" /><div className="font-semibold">Logros</div></div>
             <div className="grid sm:grid-cols-3 gap-3">
-              {[{ id: "streak7", title: "Ahorraste 7 días seguidos", ok: streakDays >= 7 },
-                { id: "firstMillion", title: "Primer millón ahorrado", ok: totalSavedAllTime >= 1_000_000 },
-                { id: "over20", title: "Superaste tu meta en 20%", ok: goals.some(g=>g.target>0 && g.balance>=g.target*1.2) }].map((a) => (
+              {achievements.map((a) => (
                 <div key={a.id} className={cx("rounded-xl p-3 border text-sm",
                   a.ok ? "border-green-300 bg-green-50 dark:bg-green-900/30 dark:border-green-700" : "border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50"
                 )}>
@@ -708,8 +505,24 @@ Comandos:
           <div className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2 font-semibold">🎯 Objetivos de ahorro</div>
-              <Button variant="neutral" onClick={() => setGoalOpen(true)}>Nuevo objetivo</Button>
+              <Button variant="neutral" onClick={() => setGoalOpen((v) => !v)}>{goalOpen ? "Cerrar" : "Nuevo objetivo"}</Button>
             </div>
+
+            {goalOpen && (
+              <div className="mb-4 grid md:grid-cols-4 gap-2 items-end">
+                <div className="md:col-span-2">
+                  <Input placeholder="Nombre del objetivo" value={newGoalName} onChange={(e: Inp)=>setNewGoalName(e.target.value)} />
+                </div>
+                <div>
+                  <Input type="number" inputMode="numeric" placeholder="Meta (monto)" value={newGoalTarget} onChange={(e: Inp)=>setNewGoalTarget(e.target.value)} />
+                </div>
+                <div className="flex gap-2">
+                  <Input style={{width:90}} placeholder="Emoji" value={newGoalEmoji} onChange={(e: Inp)=>setNewGoalEmoji(e.target.value)} />
+                  <Button onClick={addGoal}>Crear</Button>
+                </div>
+              </div>
+            )}
+
             {goals.length === 0 ? (
               <div className="text-sm text-slate-600 dark:text-slate-300">No tienes objetivos aún. Crea uno con “Nuevo objetivo” y empieza a construir tu libertad financiera 🚀</div>
             ) : (
@@ -860,7 +673,7 @@ Comandos:
           </div>
         </Card>
 
-        {/* METAS POR CATEGORÍA (semáforo corregido) */}
+        {/* METAS POR CATEGORÍA (semáforo: >100 rojo, 80–100 ámbar, <80 verde) */}
         <Card>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3"><Wallet className="w-5 h-5" /><div className="font-semibold">Metas por categoría</div></div>
@@ -868,7 +681,6 @@ Comandos:
               {"alimentos,servicios,transporte,vivienda,salud,entretenimiento,otros".split(",").map((id) => {
                 const spent = spentById[id] || 0; const b = budgets[id] || 0;
                 const ratio = b > 0 ? spent / b : 0; const bar = Math.min(100, Math.round(ratio * 100));
-                // 🔴 >100% rojo, 🟠 80–100% ámbar, 🟢 <80% verde
                 const cls = ratio > 1 ? "bg-red-500" : ratio >= 0.8 ? "bg-amber-500" : "bg-green-500";
                 const icon = catIcons[id] || "";
                 return (
@@ -953,16 +765,12 @@ Comandos:
             {kpiOrder.map((id) => (
               <div key={id} className="flex items-center justify-between p-2 rounded-xl border border-slate-200 dark:border-slate-700 mb-2">
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={!!kpiVisible[id]} onChange={() => toggleKpi(id)} />
+                  <input type="checkbox" checked={!!kpiVisible[id]} onChange={() => setKpiVisible((v)=>({...v, [id]: !v[id]}))} />
                   <span>{({ingresos:"Ingresos",gastos:"Gastos",saldo:"Saldo",proyeccion:"Proyección"} as any)[id]}</span>
                 </label>
                 <div className="flex gap-1">
-                  <button title="Subir" onClick={() => {
-                    const idx = kpiOrder.indexOf(id); if (idx>0) { const arr=[...kpiOrder]; [arr[idx-1],arr[idx]]=[arr[idx],arr[idx-1]]; setKpiOrder(arr); }
-                  }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
-                  <button title="Bajar" onClick={() => {
-                    const idx = kpiOrder.indexOf(id); if (idx>=0 && idx<kpiOrder.length-1) { const arr=[...kpiOrder]; [arr[idx+1],arr[idx]]=[arr[idx],arr[idx+1]]; setKpiOrder(arr); }
-                  }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+                  <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
+                  <button title="Bajar" onClick={() => moveKpi(id, +1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
                 </div>
               </div>
             ))}
@@ -1019,7 +827,41 @@ Comandos:
                     <div className="mt-2 flex flex-wrap gap-2">
                       {m.actions.map(a => (
                         <button key={a.id}
-                          onClick={() => handleChatAction({ id: a.id, payload: a.payload })}
+                          onClick={() => {
+                            // acciones del asistente
+                            if (a.id === "dl_csv") { downloadCSV(); setChat((c)=>[...c, {id: uid(), role:"assistant", text:"📎 CSV descargado."}]); return; }
+                            if (a.id === "quick_resumen") {
+                              const top = [...byCat].slice(0,1)[0];
+                              const txt = `📊 ${y}-${String(m).padStart(2,"0")}\nIngresos: ${fmt(totalIn)}\nGastos: ${fmt(totalOut)}\nSaldo: ${fmt(totalNet)}${top ? `\nMayor gasto: ${top.name} (${fmt(top.value)})` : ""}`;
+                              setChat((c)=>[...c, {id: uid(), role:"assistant", text: txt}]);
+                              return;
+                            }
+                            if (a.id === "quick_comparativa") {
+                              const lastMonth = new Date(y, (m-1)-1, 1);
+                              const lastStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+                              const lastEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth()+1, 1);
+                              const inLastMonth = items.filter((t)=>{const d=new Date((t.date||"")+"T00:00:00"); return d>=lastStart && d<lastEnd;});
+                              const lastOut = inLastMonth.filter((i)=>i.type==="expense"&&i.category!=="transfer").reduce((a:number,b:any)=>a+b.amount,0);
+                              const delta = totalOut - lastOut;
+                              const pctDelta = lastOut>0? Math.round((delta/lastOut)*100):0;
+                              const s = delta===0?"igual que": delta>0?`↑ ${pctDelta}% más que`:`↓ ${Math.abs(pctDelta)}% menos que`;
+                              setChat((c)=>[...c, {id: uid(), role:"assistant", text:`📈 Comparativa vs mes pasado\nGastos: ${fmt(totalOut)} (${s})\nMes pasado: ${fmt(lastOut)}`}]);
+                              return;
+                            }
+                            if (a.id === "quick_presupuesto") {
+                              const overruns = Object.keys(budgets).map((k)=>({k, spent: spentById[k]||0, b: budgets[k]||0, ratio: (budgets[k]||0)>0? (spentById[k]||0)/(budgets[k]||0):0}))
+                                .filter(x=>x.b>0 && x.spent>x.b)
+                                .sort((a,b)=>b.ratio-a.ratio);
+                              if(!overruns.length){ setChat((c)=>[...c,{id:uid(),role:"assistant",text:"✅ No superaste ninguna meta de categoría este mes."}]); return; }
+                              const top = overruns[0];
+                              setChat((c)=>[...c,{id:uid(),role:"assistant",text:`⚠️ Te pasaste en: ${top.k} → ${fmt(top.spent)} / ${fmt(top.b)} (${pct(top.spent, top.b)}%)`}]);
+                              return;
+                            }
+                            if (a.id === "quick_ahorro") {
+                              setChat((c)=>[...c,{id:uid(),role:"assistant",text:`🐷 Ahorro total histórico: ${fmt(totalSavedAllTime)}\n🔥 Racha: ${streakDays} ${streakDays===1?"día":"días"}\nReto semanal: ${fmt(savedThisWeek)} / ${fmt(weeklyTarget)} (${weeklyProgressPct}%)`}]);
+                              return;
+                            }
+                          }}
                           className="text-xs rounded-xl px-2 py-1 bg-white/90 dark:bg-slate-700 hover:bg-white shadow ring-1 ring-slate-200 dark:ring-slate-600"
                         >{a.label}</button>
                       ))}
@@ -1030,15 +872,14 @@ Comandos:
             </div>
             <div className="px-3 pb-3">
               <div className="flex flex-wrap gap-2 mb-2">
-                <Button variant="neutral" onClick={()=>handleUserText("¿Cómo voy este mes?")}>📊 Resumen</Button>
-                <Button variant="neutral" onClick={()=>handleUserText("¿Gasto más que el mes pasado?")}>📈 Comparativa</Button>
-                <Button variant="neutral" onClick={()=>handleUserText("¿En qué categoría me pasé?")}>⚠️ Presupuesto</Button>
-                <Button variant="neutral" onClick={()=>handleUserText("¿Cuánto llevo ahorrado? ¿Racha?")}>🐷 Ahorro</Button>
+                <Button variant="neutral" onClick={()=>setChat((c)=>[...c,{id:uid(),role:"user",text:"¿Cómo voy este mes?"}])}>📊 Resumen</Button>
+                <Button variant="neutral" onClick={()=>setChat((c)=>[...c,{id:uid(),role:"user",text:"¿Gasto más que el mes pasado?"}])}>📈 Comparativa</Button>
+                <Button variant="neutral" onClick={()=>setChat((c)=>[...c,{id:uid(),role:"user",text:"¿En qué categoría me pasé?"}])}>⚠️ Presupuesto</Button>
+                <Button variant="neutral" onClick={()=>setChat((c)=>[...c,{id:uid(),role:"user",text:"¿Cuánto llevo ahorrado? ¿Racha?"}])}>🐷 Ahorro</Button>
               </div>
-              <form onSubmit={(e)=>{e.preventDefault(); handleUserText(chatInput); setChatInput("");}}>
+              <form onSubmit={(e)=>{e.preventDefault(); const el=e.currentTarget.querySelector("input") as HTMLInputElement; const txt=el.value.trim(); if(!txt) return; setChat((c)=>[...c,{id:uid(),role:"user",text:txt}]); el.value="";}}>
                 <div className="flex gap-2">
-                  <Input placeholder='Escribe… (ej: "si reduzco alimentos 10%") o /ayuda'
-                         value={chatInput} onChange={(e: Inp)=>setChatInput(e.target.value)} />
+                  <Input placeholder='Escribe… (ej: "si reduzco alimentos 10%") o /ayuda' />
                   <Button type="submit">Enviar</Button>
                 </div>
               </form>
