@@ -462,7 +462,7 @@ export default function ExpenseTracker() {
     const d = new Date((t.date || "") + "T00:00:00");
     return d >= lastStart && d < lastEnd;
   });
-  const lastIn  = inLastMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
+  // const lastIn  = inLastMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0); // (eliminado: no usado)
   const lastOut = inLastMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
 
   function chatPushUser(text: string) {
