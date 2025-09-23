@@ -85,6 +85,7 @@ type SavingsGoal = { id: string; name: string; target: number; balance: number; 
 type ThemeMode = "light" | "dark" | "minimal" | "retro8" | "gold";
 type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
 type ChatMsg = { id: string; role: "user" | "assistant"; text: string; actions?: { id: string; label: string; payload?: any }[] };
+type FxRates = { USD: number; EUR: number } | null;
 
 export default function ExpenseTracker() {
   const [themeMode, setThemeMode] = useLocalStorage<ThemeMode>("gastopro.themeMode", "light");
@@ -150,6 +151,10 @@ export default function ExpenseTracker() {
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
   const chatListRef = useRef<HTMLDivElement>(null);
 
+  // FX: tasas cuando la moneda es CLP → mostrar equivalencia USD/EUR
+  const [fx, setFx] = useState<FxRates>(null);
+  const [fxUpdatedAt, setFxUpdatedAt] = useState<string>("");
+
   const quotes = [
     "Pequeños pasos, grandes resultados.",
     "Primero te pagas a ti: ahorra antes de gastar.",
@@ -173,6 +178,34 @@ export default function ExpenseTracker() {
     ).format,
     [currency]
   );
+
+  // Formateadores para equivalencias cuando la moneda es CLP
+  const fmtUSD = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format, []);
+  const fmtEUR = useMemo(() => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format, []);
+
+  // Carga de tasas: usa exchangerate.host (gratis y con CORS)
+  useEffect(() => {
+    let ignore = false;
+    async function loadFx() {
+      if (currency !== "CLP") { setFx(null); return; }
+      try {
+        const res = await fetch("https://api.exchangerate.host/latest?base=CLP&symbols=USD,EUR");
+        const data = await res.json();
+        if (!ignore && data && data.rates) {
+          setFx({ USD: data.rates.USD, EUR: data.rates.EUR });
+          setFxUpdatedAt(new Date().toLocaleTimeString());
+        }
+      } catch {
+        // fallback simple si falla: tasas aproximadas (no “reales”, pero evita romper UI)
+        if (!ignore) {
+          setFx({ USD: 0.001, EUR: 0.0009 });
+          setFxUpdatedAt("—");
+        }
+      }
+    }
+    loadFx();
+    return () => { ignore = true; };
+  }, [currency]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -401,6 +434,18 @@ export default function ExpenseTracker() {
     const arr = [...kpiOrder]; [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; setKpiOrder(arr);
   };
 
+  // Helper: renderiza equivalencias USD/EUR para un monto en CLP
+  const renderFxSmall = (valCLP: number) => {
+    if (currency !== "CLP" || !fx) return null;
+    const usd = valCLP * fx.USD;
+    const eur = valCLP * fx.EUR;
+    return (
+      <div className="text-[11px] opacity-80 mt-1">
+        {fmtUSD(usd)} · {fmtEUR(eur)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
+      </div>
+    );
+  };
+
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
       <section className={cx(
@@ -432,20 +477,25 @@ export default function ExpenseTracker() {
             Control profesional de gastos con metas, gráficos, cuentas, transferencias, ahorro, gamificación y personalización total.
           </p>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            {(["ingresos","gastos","saldo","proyeccion"] as KpiId[]).filter((id) => kpiVisible[id]).map((id) => (
-              <Card key={id}>
-                <div className="p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="opacity-90">{({ingresos:"Ingresos",gastos:"Gastos",saldo:"Saldo",proyeccion:"Proyección"} as any)[id]}</div>
-                    <div className="flex gap-1">
-                      <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
-                      <button title="Bajar" onClick={() => moveKpi(id, +1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+            {(["ingresos","gastos","saldo","proyeccion"] as KpiId[]).filter((id) => kpiVisible[id]).map((id) => {
+              const val = ({ ingresos: totalIn, gastos: totalOut, saldo: totalNet, proyeccion: projected } as any)[id] as number;
+              const label = ({ ingresos: "Ingresos", gastos: "Gastos", saldo: "Saldo", proyeccion: "Proyección" } as any)[id];
+              return (
+                <Card key={id}>
+                  <div className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="opacity-90">{label}</div>
+                      <div className="flex gap-1">
+                        <button title="Subir" onClick={() => moveKpi(id, -1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronUp className="w-4 h-4" /></button>
+                        <button title="Bajar" onClick={() => moveKpi(id, +1)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronDown className="w-4 h-4" /></button>
+                      </div>
                     </div>
+                    <div className="text-xl font-semibold">{fmt(val)}</div>
+                    {renderFxSmall(val)}
                   </div>
-                  <div className="text-xl font-semibold">{fmt(({ingresos:totalIn,gastos:totalOut,saldo:totalNet,proyeccion:projected} as any)[id])}</div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -474,7 +524,11 @@ export default function ExpenseTracker() {
             </div>
             <div className="flex items-center gap-2"><Award className="w-5 h-5 text-indigo-500" /><div className="font-semibold">Logros</div></div>
             <div className="grid sm:grid-cols-3 gap-3">
-              {achievements.map((a) => (
+              {[
+                { id: "streak7", title: "Ahorraste 7 días seguidos", ok: streakDays >= 7 },
+                { id: "firstMillion", title: "Primer millón ahorrado", ok: totalSavedAllTime >= 1_000_000 },
+                { id: "over20", title: "Superaste tu meta en 20%", ok: goals.some((g) => g.target > 0 && g.balance >= g.target * 1.2) },
+              ].map((a) => (
                 <div key={a.id} className={cx("rounded-xl p-3 border text-sm",
                   a.ok ? "border-green-300 bg-green-50 dark:bg-green-900/30 dark:border-green-700" : "border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50"
                 )}>
@@ -490,7 +544,7 @@ export default function ExpenseTracker() {
             <div className="flex items-center gap-2"><Target className="w-5 h-5 text-cyan-500" /><div className="font-semibold">Reto semanal: +10% que la semana pasada</div></div>
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
               <div className="text-sm text-slate-700 dark:text-slate-300">
-                Esta semana: <strong>{fmt(savedThisWeek)}</strong> · Semana pasada: <strong>{fmt(savedLastWeek)}</strong> · Meta: <strong>{fmt(weeklyTarget)}</strong>
+                Esta semana: <strong>{fmt(sumBetween(startOfWeek(now), endOfWeek(now)))}</strong> · Semana pasada: <strong>{fmt(sumBetween(new Date(startOfWeek(now).getTime() - 7*24*3600*1000), startOfWeek(now)))}</strong> · Meta: <strong>{fmt(Math.ceil(sumBetween(new Date(startOfWeek(now).getTime() - 7*24*3600*1000), startOfWeek(now)) * 1.1))}</strong>
               </div>
               <div className="mt-2 h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden">
                 <div className={cx("h-2", weeklyProgressPct >= 100 ? "bg-green-500" : "bg-indigo-500")} style={{ width: `${weeklyProgressPct}%` }} />
