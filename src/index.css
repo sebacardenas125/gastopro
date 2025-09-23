@@ -3,3 +3,12 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+@media (max-width: 640px){
+  table thead { display:none; }
+  table tbody tr { display:block; margin-bottom:12px; border-radius:12px; }
+  table tbody td { display:flex; justify-content:space-between; padding:10px 12px; }
+  table tbody td::before{
+    content: attr(data-label);
+    font-weight:600; margin-right:8px; opacity:.8;
+  }
+}
