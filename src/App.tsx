@@ -94,7 +94,7 @@ type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
 export default function ExpenseTracker() {
   // Preferencias
   const [themeMode, setThemeMode] = useLocalStorage<ThemeMode>("gastopro.themeMode", "light");
-  const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light"); // para compatibilidad de estilos dark
+  const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light"); // compat dark
   const [currency, setCurrency] = useLocalStorage<"CLP" | "USD" | "EUR">("gastopro.currency", "CLP");
 
   // Datos base
@@ -145,6 +145,7 @@ export default function ExpenseTracker() {
   const [transferAmt, setTransferAmt] = useState<string | number>(0);
   const [transferNote, setTransferNote] = useState("");
 
+  // *** usados por el modal de nuevo objetivo ***
   const [goalOpen, setGoalOpen] = useState(false);
   const [newGoalName, setNewGoalName] = useState("");
   const [newGoalTarget, setNewGoalTarget] = useState<string | number>(0);
@@ -643,10 +644,10 @@ export default function ExpenseTracker() {
               <ResponsiveContainer width="100%" height="100%"><PieChart>
                 <Pie data={byCat} dataKey="value" nameKey="name" outerRadius={110} label>
                   {byCat.map((seg, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    <Cell key={seg.name ?? i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: any, _n: any, d: any) => fmt(v)}/>
+                <Tooltip formatter={(v: any) => fmt(v)} />
               </PieChart></ResponsiveContainer>
             </div>
           </Card>
@@ -829,6 +830,19 @@ export default function ExpenseTracker() {
           </div>
         </div>
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setCustomizeOpen(false)}>Listo</Button></div>
+      </Modal>
+
+      {/* Modal: Nuevo objetivo de ahorro (usa goalOpen y addGoal) */}
+      <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="Nuevo objetivo de ahorro">
+        <div className="grid gap-3">
+          <Input placeholder="Nombre (ej: Viaje, Fondo emergencia)" value={newGoalName} onChange={(e: Inp) => setNewGoalName(e.target.value)} />
+          <Input type="number" inputMode="numeric" placeholder="Meta (monto total)" value={newGoalTarget} onChange={(e: Inp) => setNewGoalTarget(e.target.value)} />
+          <Input placeholder="Emoji (opcional, ej: ✈️ 🏠 🚗)" value={newGoalEmoji} onChange={(e: Inp) => setNewGoalEmoji(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button variant="neutral" onClick={() => setGoalOpen(false)}>Cancelar</Button>
+            <Button onClick={addGoal}>Crear</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Ayuda flotante */}
