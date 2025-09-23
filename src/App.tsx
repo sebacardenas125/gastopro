@@ -98,6 +98,9 @@ const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#7c3aed", "#06b6d4"
 const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
+// --- Tipos de ahorro ---
+type SavingsGoal = { id: string; name: string; target: number; balance: number; emoji: string };
+
 export default function ExpenseTracker() {
   const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light");
   const [currency, setCurrency] = useLocalStorage<"CLP" | "USD" | "EUR">("gastopro.currency", "CLP");
@@ -119,6 +122,24 @@ export default function ExpenseTracker() {
   });
   const [templates, setTemplates] = useLocalStorage<any[]>("gastopro.recurring", []);
   const [presets, setPresets] = useLocalStorage<any>("gastopro.presets", { type: "expense", category: "alimentos", accountId: "cash" });
+
+  // --- Ahorros ---
+  const [goals, setGoals] = useLocalStorage<SavingsGoal[]>("gastopro.goals", []);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [newGoalName, setNewGoalName] = useState("");
+  const [newGoalTarget, setNewGoalTarget] = useState<string | number>(0);
+  const [newGoalEmoji, setNewGoalEmoji] = useState("💸");
+  const [depositInput, setDepositInput] = useState<Record<string, string | number>>({});
+  const [depositAccount, setDepositAccount] = useState<Record<string, string>>({});
+
+  const quotes = [
+    "Pequeños pasos, grandes resultados.",
+    "Primero te pagas a ti: ahorra antes de gastar.",
+    "Tu dinero trabaja mejor cuando tú decides el plan.",
+    "La constancia vence a la suerte.",
+    "Cada peso ahorrado es libertad ganada.",
+    "No se trata de cantidades, se trata de hábitos.",
+  ];
 
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -301,7 +322,7 @@ export default function ExpenseTracker() {
   const totalsByAccount = accounts.map((a) => ({ id: a.id, name: a.name, balance: accountBalance(a.id) }));
 
   const downloadJSON = () => {
-    const blob = new Blob([JSON.stringify({ items, budgets, templates, accounts }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ items, budgets, templates, accounts, goals }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -332,6 +353,7 @@ export default function ExpenseTracker() {
       if (j.budgets) setBudgets(j.budgets);
       if (Array.isArray(j.templates)) setTemplates(j.templates);
       if (Array.isArray(j.accounts)) setAccounts(j.accounts);
+      if (Array.isArray(j.goals)) setGoals(j.goals);
     } catch {
       alert("Archivo no válido");
     }
@@ -380,7 +402,7 @@ export default function ExpenseTracker() {
     setTimeout(() => setToastOpen(false), 2500);
   };
 
-  // Toast por metas alcanzadas (80/100/120%)
+  // Toast por metas de gasto alcanzadas (80/100/120%)
   useEffect(() => {
     const hits: string[] = [];
     for (const id of Object.keys(budgets)) {
@@ -397,6 +419,55 @@ export default function ExpenseTracker() {
       return () => clearTimeout(t);
     }
   }, [spentById, budgets]);
+
+  // --- Funciones de ahorro ---
+  const addGoal = () => {
+    const name = newGoalName.trim();
+    const target = Number(newGoalTarget);
+    if (!name || !target) return alert("Completa nombre y meta (número mayor a 0).");
+    setGoals((g) => [...g, { id: uid(), name, target, balance: 0, emoji: newGoalEmoji || "💸" }]);
+    setNewGoalName("");
+    setNewGoalTarget(0);
+    setNewGoalEmoji("💸");
+    setGoalOpen(false);
+  };
+
+  const removeGoal = (id: string) => {
+    setGoals((g) => g.filter((x) => x.id !== id));
+  };
+
+  const depositToGoal = (id: string) => {
+    const amount = Number(depositInput[id] || 0);
+    const acc = ensureAccount(depositAccount[id] || accounts[0]?.id || "cash");
+    if (!amount) return alert("Ingresa un monto válido.");
+    // actualizar balance del objetivo
+    setGoals((g) =>
+      g.map((goal) => (goal.id === id ? { ...goal, balance: goal.balance + amount } : goal))
+    );
+    // registrar movimiento (como gasto de categoría 'ahorro')
+    const goal = goals.find((gg) => gg.id === id);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const row = {
+      id: uid(),
+      date: todayStr,
+      type: "expense",
+      category: "ahorro",
+      note: `Ahorro → ${goal?.name || "Objetivo"}`,
+      amount,
+      tags: ["ahorro"],
+      accountId: acc,
+    };
+    setItems((p) => [row, ...p]);
+    setDepositInput((s) => ({ ...s, [id]: 0 }));
+
+    // frase motivacional
+    const phrase = quotes[Math.floor(Math.random() * quotes.length)];
+    const gNow = goal ? goal.balance + amount : amount;
+    const pDone = goal && goal.target > 0 ? Math.min(100, Math.round((gNow / goal.target) * 100)) : 0;
+    setToastMsg(`🎯 ¡Ahorro agregado! ${phrase} (${pDone}%)`);
+    setToastOpen(true);
+    setTimeout(() => setToastOpen(false), 3000);
+  };
 
   return (
     <div className={theme === "dark" ? "dark" : ""}>
@@ -419,7 +490,7 @@ export default function ExpenseTracker() {
               </Button>
             </div>
           </div>
-          <p className="mt-2 text-white/90">Control profesional de gastos con metas, gráficos, cuentas y transferencias.</p>
+          <p className="mt-2 text-white/90">Control profesional de gastos con metas, gráficos, cuentas, transferencias y ahora ¡objetivos de ahorro! 💪</p>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-3 text-sm">
             <Card>
               <div className="p-3">
@@ -471,6 +542,78 @@ export default function ExpenseTracker() {
                 <ArrowLeftRight className="w-4 h-4" /> Transferir
               </Button>
             </div>
+          </div>
+        </Card>
+
+        {/* Objetivos de ahorro */}
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2 font-semibold">🎯 Objetivos de ahorro</div>
+              <Button variant="neutral" onClick={() => setGoalOpen(true)}>
+                Nuevo objetivo
+              </Button>
+            </div>
+
+            {goals.length === 0 ? (
+              <div className="text-sm text-slate-600 dark:text-slate-300">
+                No tienes objetivos aún. Crea uno con “Nuevo objetivo” y empieza a construir tu libertad financiera 🚀
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-3">
+                {goals.map((g) => {
+                  const progress = g.target > 0 ? Math.min(100, Math.round((g.balance / g.target) * 100)) : 0;
+                  const barCls = progress >= 100 ? "bg-green-500" : progress >= 60 ? "bg-indigo-500" : "bg-slate-400";
+                  return (
+                    <div key={g.id} className="rounded-xl border border-slate-200/70 dark:border-slate-700 p-3 bg-white/80 dark:bg-slate-900/60">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-lg">
+                          <span className="text-2xl">{g.emoji}</span>
+                          <span className="font-semibold">{g.name}</span>
+                        </div>
+                        <Button variant="danger" onClick={() => removeGoal(g.id)}>
+                          Eliminar
+                        </Button>
+                      </div>
+                      <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                        {fmt(g.balance)} / {fmt(g.target)} — {progress}%
+                      </div>
+                      <div className="mt-2 h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                        <div className={cx("h-2", barCls)} style={{ width: `${progress}%` }} />
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-5 gap-2 items-center">
+                        <div className="col-span-2">
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            placeholder="Monto"
+                            value={depositInput[g.id] ?? ""}
+                            onChange={(e: Inp) => setDepositInput((s) => ({ ...s, [g.id]: e.target.value }))}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <select
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
+                            value={depositAccount[g.id] ?? accounts[0]?.id ?? "cash"}
+                            onChange={(e: Sel) => setDepositAccount((s) => ({ ...s, [g.id]: e.target.value }))}
+                          >
+                            {accounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="col-span-1">
+                          <Button onClick={() => depositToGoal(g.id)}>Agregar</Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </Card>
 
@@ -682,6 +825,7 @@ export default function ExpenseTracker() {
                 const b = budgets[id] || 0;
                 const ratio = b > 0 ? spent / b : 0;
                 const bar = Math.min(100, Math.round(ratio * 100));
+                // ≥100% verde porque es “ahorro positivo” (tu regla)
                 const cls = ratio >= 1 ? "bg-green-500" : ratio >= 0.8 ? "bg-amber-500" : "bg-red-500";
                 return (
                   <div key={id} className="rounded-xl border border-slate-200/70 dark:border-slate-700 p-3 bg-white/80 dark:bg-slate-900/60">
@@ -773,6 +917,20 @@ export default function ExpenseTracker() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="Nuevo objetivo de ahorro">
+        <div className="grid gap-3">
+          <Input placeholder="Nombre (ej: Viaje, Fondo emergencia)" value={newGoalName} onChange={(e: Inp) => setNewGoalName(e.target.value)} />
+          <Input type="number" inputMode="numeric" placeholder="Meta (monto total)" value={newGoalTarget} onChange={(e: Inp) => setNewGoalTarget(e.target.value)} />
+          <Input placeholder="Emoji (opcional, ej: ✈️ 🏠 🚗)" value={newGoalEmoji} onChange={(e: Inp) => setNewGoalEmoji(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button variant="neutral" onClick={() => setGoalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={addGoal}>Crear</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Ayuda flotante simple */}
