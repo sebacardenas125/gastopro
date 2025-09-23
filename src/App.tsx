@@ -147,7 +147,6 @@ export default function ExpenseTracker() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState("");
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
   const chatListRef = useRef<HTMLDivElement>(null);
 
@@ -211,9 +210,9 @@ export default function ExpenseTracker() {
 
   const del = (id: string) => setItems((p) => p.filter((x) => x.id !== id));
 
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 1);
+  const [y, mNum] = month.split("-").map(Number);
+  const start = new Date(y, mNum - 1, 1);
+  const end = new Date(y, mNum, 1);
   const inMonth = items.filter((t) => {
     const d = new Date((t.date || "") + "T00:00:00");
     return d >= start && d < end;
@@ -248,7 +247,7 @@ export default function ExpenseTracker() {
   }, [inMonth]);
 
   const history = useMemo(() => {
-    const now = new Date(y, m - 1, 1);
+    const now = new Date(y, mNum - 1, 1);
     const pts: any[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -269,8 +268,8 @@ export default function ExpenseTracker() {
   }, [inMonth]);
 
   const today = new Date();
-  const dim = daysInMonth(y, m - 1);
-  const isCurrent = today.getFullYear() === y && today.getMonth() + 1 === m;
+  const dim = daysInMonth(y, mNum - 1);
+  const isCurrent = today.getFullYear() === y && today.getMonth() + 1 === mNum;
   const dayIdx = isCurrent ? Math.max(1, today.getDate()) : Math.min(15, dim);
   const avgDaily = dayIdx ? totalNet / dayIdx : 0;
   const projected = Math.round(avgDaily * dim);
@@ -815,29 +814,29 @@ export default function ExpenseTracker() {
                   👋 Hola, pregúntame: “¿Cómo voy este mes?”, “¿Gasto más que el mes pasado?”, “Sugerencias”, “¿Racha?” o escribe <code>/ayuda</code>.
                 </div>
               )}
-              {chat.map((m) => (
-                <div key={m.id} className={cx(
+              {chat.map((msg) => (
+                <div key={msg.id} className={cx(
                   "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
-                  m.role === "user"
+                  msg.role === "user"
                     ? "bg-indigo-600 text-white ml-auto"
                     : "bg-slate-100 dark:bg-slate-800 dark:text-slate-100"
                 )}>
-                  <div style={{whiteSpace:"pre-wrap"}}>{m.text}</div>
-                  {m.actions && m.actions.length > 0 && (
+                  <div style={{whiteSpace:"pre-wrap"}}>{msg.text}</div>
+                  {msg.actions && msg.actions.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {m.actions.map(a => (
+                      {msg.actions.map(a => (
                         <button key={a.id}
                           onClick={() => {
-                            // acciones del asistente
                             if (a.id === "dl_csv") { downloadCSV(); setChat((c)=>[...c, {id: uid(), role:"assistant", text:"📎 CSV descargado."}]); return; }
                             if (a.id === "quick_resumen") {
                               const top = [...byCat].slice(0,1)[0];
-                              const txt = `📊 ${y}-${String(m).padStart(2,"0")}\nIngresos: ${fmt(totalIn)}\nGastos: ${fmt(totalOut)}\nSaldo: ${fmt(totalNet)}${top ? `\nMayor gasto: ${top.name} (${fmt(top.value)})` : ""}`;
+                              const [yy, mm] = month.split("-");
+                              const txt = `📊 ${yy}-${mm}\nIngresos: ${fmt(totalIn)}\nGastos: ${fmt(totalOut)}\nSaldo: ${fmt(totalNet)}${top ? `\nMayor gasto: ${top.name} (${fmt(top.value)})` : ""}`;
                               setChat((c)=>[...c, {id: uid(), role:"assistant", text: txt}]);
                               return;
                             }
                             if (a.id === "quick_comparativa") {
-                              const lastMonth = new Date(y, (m-1)-1, 1);
+                              const lastMonth = new Date(y, (mNum-1)-1, 1);
                               const lastStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
                               const lastEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth()+1, 1);
                               const inLastMonth = items.filter((t)=>{const d=new Date((t.date||"")+"T00:00:00"); return d>=lastStart && d<lastEnd;});
