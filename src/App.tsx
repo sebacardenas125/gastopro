@@ -151,7 +151,6 @@ export default function ExpenseTracker() {
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
   const chatListRef = useRef<HTMLDivElement>(null);
 
-  // FX: tasas cuando la moneda es CLP → mostrar equivalencia USD/EUR
   const [fx, setFx] = useState<FxRates>(null);
   const [fxUpdatedAt, setFxUpdatedAt] = useState<string>("");
 
@@ -179,11 +178,9 @@ export default function ExpenseTracker() {
     [currency]
   );
 
-  // Formateadores para equivalencias cuando la moneda es CLP
   const fmtUSD = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format, []);
   const fmtEUR = useMemo(() => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format, []);
 
-  // Carga de tasas: usa exchangerate.host (gratis y con CORS)
   useEffect(() => {
     let ignore = false;
     async function loadFx() {
@@ -196,7 +193,6 @@ export default function ExpenseTracker() {
           setFxUpdatedAt(new Date().toLocaleTimeString());
         }
       } catch {
-        // fallback simple si falla: tasas aproximadas (no “reales”, pero evita romper UI)
         if (!ignore) {
           setFx({ USD: 0.001, EUR: 0.0009 });
           setFxUpdatedAt("—");
@@ -397,14 +393,6 @@ export default function ExpenseTracker() {
   const weeklyTarget = Math.ceil(savedLastWeek * 1.1);
   const weeklyProgressPct = weeklyTarget > 0 ? Math.min(100, Math.round((savedThisWeek / weeklyTarget) * 100)) : (savedThisWeek > 0 ? 100 : 0);
 
-  const million = 1_000_000;
-  const anyGoal20 = goals.some((g) => g.target > 0 && g.balance >= g.target * 1.2);
-  const achievements = [
-    { id: "streak7", title: "Ahorraste 7 días seguidos", ok: streakDays >= 7 },
-    { id: "firstMillion", title: "Primer millón ahorrado", ok: totalSavedAllTime >= million },
-    { id: "over20", title: "Superaste tu meta en 20%", ok: anyGoal20 },
-  ];
-
   const addGoal = () => {
     const name = newGoalName.trim(); const target = Number(newGoalTarget);
     if (!name || !target) return alert("Completa nombre y meta (número mayor a 0).");
@@ -434,7 +422,6 @@ export default function ExpenseTracker() {
     const arr = [...kpiOrder]; [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; setKpiOrder(arr);
   };
 
-  // Helper: renderiza equivalencias USD/EUR para un monto en CLP
   const renderFxSmall = (valCLP: number) => {
     if (currency !== "CLP" || !fx) return null;
     const usd = valCLP * fx.USD;
@@ -726,7 +713,6 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
-        {/* METAS POR CATEGORÍA (semáforo: >100 rojo, 80–100 ámbar, <80 verde) */}
         <Card>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3"><Wallet className="w-5 h-5" /><div className="font-semibold">Metas por categoría</div></div>
