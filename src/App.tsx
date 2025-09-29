@@ -151,6 +151,7 @@ export default function ExpenseTracker() {
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
   const chatListRef = useRef<HTMLDivElement>(null);
 
+  // Conversión CLP → USD/EUR
   const [fx, setFx] = useState<FxRates>(null);
   const [fxUpdatedAt, setFxUpdatedAt] = useState<string>("");
 
@@ -177,10 +178,10 @@ export default function ExpenseTracker() {
     ).format,
     [currency]
   );
-
   const fmtUSD = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format, []);
   const fmtEUR = useMemo(() => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format, []);
 
+  // Trae tasas si la moneda seleccionada es CLP
   useEffect(() => {
     let ignore = false;
     async function loadFx() {
@@ -202,6 +203,27 @@ export default function ExpenseTracker() {
     loadFx();
     return () => { ignore = true; };
   }, [currency]);
+
+  // Helpers para imprimir la conversión
+  const renderFxSmall = (valCLP: number, alignRight = false) => {
+    if (currency !== "CLP" || !fx) return null;
+    const usd = valCLP * fx.USD;
+    const eur = valCLP * fx.EUR;
+    return (
+      <div className={cx("text-[11px] opacity-80 mt-1", alignRight && "text-right")}>
+        {fmtUSD(usd)} · {fmtEUR(eur)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
+      </div>
+    );
+  };
+  const renderFxPairCLP = (balanceCLP: number, targetCLP: number) => {
+    if (currency !== "CLP" || !fx) return null;
+    return (
+      <div className="text-[11px] opacity-80 mt-1">
+        USD: {fmtUSD(balanceCLP * fx.USD)} / {fmtUSD(targetCLP * fx.USD)} ·
+        EUR: {fmtEUR(balanceCLP * fx.EUR)} / {fmtEUR(targetCLP * fx.EUR)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
+      </div>
+    );
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -422,17 +444,6 @@ export default function ExpenseTracker() {
     const arr = [...kpiOrder]; [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; setKpiOrder(arr);
   };
 
-  const renderFxSmall = (valCLP: number) => {
-    if (currency !== "CLP" || !fx) return null;
-    const usd = valCLP * fx.USD;
-    const eur = valCLP * fx.EUR;
-    return (
-      <div className="text-[11px] opacity-80 mt-1">
-        {fmtUSD(usd)} · {fmtEUR(eur)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
-      </div>
-    );
-  };
-
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
       <section className={cx(
@@ -496,6 +507,7 @@ export default function ExpenseTracker() {
                 <div key={a.id} className="rounded-xl px-3 py-2 text-sm bg-white/80 border border-white/40 dark:bg-slate-900/60 dark:border-slate-700">
                   <div className="font-medium">{a.name}</div>
                   <div className="opacity-80">{fmt(a.balance)}</div>
+                  {renderFxSmall(a.balance)}
                 </div>
               ))}
               <Button variant="neutral" onClick={() => setAccOpen(true)}>Administrar</Button>
@@ -580,6 +592,7 @@ export default function ExpenseTracker() {
                         <Button variant="danger" onClick={() => removeGoal(g.id)}>Eliminar</Button>
                       </div>
                       <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{fmt(g.balance)} / {fmt(g.target)} — {progress}%</div>
+                      {renderFxPairCLP(g.balance, g.target)}
                       <div className="mt-2 h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden"><div className={cx("h-2", barCls)} style={{ width: `${progress}%` }} /></div>
                       <div className="mt-3 grid grid-cols-5 gap-2 items-center">
                         <div className="col-span-2">
@@ -689,6 +702,7 @@ export default function ExpenseTracker() {
                 {filtered.map((i: any) => {
                   const acc = accounts.find((a) => a.id === (i.accountId || accounts[0]?.id));
                   const icon = catIcons[i.category] || "";
+                  const signed = i.type === "expense" ? -Number(i.amount || 0) : Number(i.amount || 0);
                   return (
                     <tr key={i.id} className="border-t border-slate-200/70 dark:border-slate-700 hover:bg-slate-50/70 dark:hover:bg-slate-800/60">
                       <td className="p-2 whitespace-nowrap" data-label="Fecha">{i.date}</td>
@@ -701,7 +715,10 @@ export default function ExpenseTracker() {
                           <span key={t} className="inline-block text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 mr-1 dark:bg-slate-800 dark:text-slate-200">{t}</span>
                         ))}
                       </td>
-                      <td className="p-2 text-right font-medium" data-label="Monto">{i.type === "expense" ? `- ${fmt(i.amount)}` : fmt(i.amount)}</td>
+                      <td className="p-2 text-right font-medium" data-label="Monto">
+                        {i.type === "expense" ? `- ${fmt(i.amount)}` : fmt(i.amount)}
+                        {renderFxSmall(signed, true)}
+                      </td>
                       <td className="p-2 text-right" data-label="Acción">
                         <button onClick={() => del(i.id)} className="rounded-lg px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                       </td>
