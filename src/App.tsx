@@ -4,14 +4,32 @@ import {
   ArrowLeftRight, Award, Flame, Target, ChevronUp, ChevronDown, Settings, Brush,
   MessageCircle
 } from "lucide-react";
-import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  CartesianGrid, XAxis, YAxis, Tooltip
+} from "recharts";
 
+/* ===========================
+   Tipos y utilidades
+=========================== */
 type Inp = React.ChangeEvent<HTMLInputElement>;
 type Sel = React.ChangeEvent<HTMLSelectElement>;
+type FxRates = { USD: number; EUR: number };
+type FxState = { fx: FxRates | null; updatedAt: string };
+type SavingsGoal = { id: string; name: string; target: number; balance: number; emoji: string };
+type ThemeMode = "light" | "dark" | "minimal" | "retro8" | "gold";
+type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
+type ChatMsg = { id: string; role: "user" | "assistant"; text: string; actions?: { id: string; label: string; payload?: any }[] };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const cx = (...a: any[]) => a.filter(Boolean).join(" ");
+const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#7c3aed", "#06b6d4", "#f97316", "#22c55e"];
+const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
+/* ===========================
+   Componentes básicos
+=========================== */
 const Button = ({ variant = "primary", className = "", children, ...p }: any) => (
   <button
     {...p}
@@ -69,6 +87,9 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
   );
 }
 
+/* ===========================
+   LocalStorage helper
+=========================== */
 function useLocalStorage<T>(key: string, initial: T) {
   const [v, setV] = useState<T>(() => {
     try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : initial; } catch { return initial; }
@@ -77,26 +98,99 @@ function useLocalStorage<T>(key: string, initial: T) {
   return [v, setV] as const;
 }
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#7c3aed", "#06b6d4", "#f97316", "#22c55e"];
-const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
-const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
+/* ===========================
+   Hook de tasas con 2 proveedores + caché 24h
+=========================== */
+function useFx(baseCurrency: "CLP" | "USD" | "EUR"): FxState {
+  const [fx, setFx] = useState<FxRates | null>(null);
+  const [updatedAt, setUpdatedAt] = useState("");
 
-type SavingsGoal = { id: string; name: string; target: number; balance: number; emoji: string };
-type ThemeMode = "light" | "dark" | "minimal" | "retro8" | "gold";
-type KpiId = "ingresos" | "gastos" | "saldo" | "proyeccion";
-type ChatMsg = { id: string; role: "user" | "assistant"; text: string; actions?: { id: string; label: string; payload?: any }[] };
-type FxRates = { USD: number; EUR: number } | null;
+  useEffect(() => {
+    if (baseCurrency !== "CLP") { setFx(null); setUpdatedAt(""); return; }
 
+    const LS_KEY = "gastopro.fx.clp";
+    const now = Date.now();
+
+    // cache 24h
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached?.ts && now - cached.ts < 24 * 60 * 60 * 1000 && cached?.fx?.USD && cached?.fx?.EUR) {
+          setFx(cached.fx);
+          setUpdatedAt(new Date(cached.ts).toLocaleTimeString());
+          return;
+        }
+      }
+    } catch {}
+
+    let cancelled = false;
+
+    async function fetchFx() {
+      // proveedor A
+      try {
+        const r = await fetch("https://api.exchangerate.host/latest?base=CLP&symbols=USD,EUR");
+        const j = await r.json();
+        if (!cancelled && j?.rates?.USD && j?.rates?.EUR) {
+          const next = { USD: j.rates.USD, EUR: j.rates.EUR };
+          setFx(next);
+          setUpdatedAt(new Date().toLocaleTimeString());
+          try { localStorage.setItem(LS_KEY, JSON.stringify({ ts: now, fx: next })); } catch {}
+          return;
+        }
+      } catch {}
+
+      // proveedor B
+      try {
+        const r = await fetch("https://open.er-api.com/v6/latest/CLP");
+        const j = await r.json();
+        if (!cancelled && j?.result === "success" && j?.rates?.USD && j?.rates?.EUR) {
+          const next = { USD: j.rates.USD, EUR: j.rates.EUR };
+          setFx(next);
+          setUpdatedAt(new Date().toLocaleTimeString());
+          try { localStorage.setItem(LS_KEY, JSON.stringify({ ts: now, fx: next })); } catch {}
+          return;
+        }
+      } catch {}
+
+      // fallback cache viejo
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          const cached = JSON.parse(raw);
+          if (cached?.fx?.USD && cached?.fx?.EUR) {
+            setFx(cached.fx);
+            setUpdatedAt("cache");
+          }
+        }
+      } catch {}
+    }
+
+    fetchFx();
+    return () => { cancelled = true; };
+  }, [baseCurrency]);
+
+  return { fx, updatedAt };
+}
+
+/* ===========================
+   App
+=========================== */
 export default function ExpenseTracker() {
+  // Preferencias / UI
   const [themeMode, setThemeMode] = useLocalStorage<ThemeMode>("gastopro.themeMode", "light");
   const [theme, setTheme] = useLocalStorage<"light" | "dark">("gastopro.theme", "light");
   const [currency, setCurrency] = useLocalStorage<"CLP" | "USD" | "EUR">("gastopro.currency", "CLP");
 
+  // FX
+  const { fx, updatedAt: fxUpdatedAt } = useFx(currency);
+  const fmtUSD = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format, []);
+  const fmtEUR = useMemo(() => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format, []);
+
+  // Datos principales
   const [items, setItems] = useLocalStorage<any[]>("gastopro.tx", []);
   const [accounts, setAccounts] = useLocalStorage<{ id: string; name: string }[]>("gastopro.accounts", [
-    { id: "cash", name: "Efectivo" },
-    { id: "debit", name: "Débito" },
-    { id: "credit", name: "Crédito" },
+    { id: "cash", name: "Efectivo" }, { id: "debit", name: "Débito" }, { id: "credit", name: "Crédito" },
   ]);
   const [budgets, setBudgets] = useLocalStorage<Record<string, number>>("gastopro.budgets", {
     alimentos: 0, servicios: 0, transporte: 0, vivienda: 0, salud: 0, entretenimiento: 0, otros: 0,
@@ -104,17 +198,28 @@ export default function ExpenseTracker() {
   const [templates, setTemplates] = useLocalStorage<any[]>("gastopro.recurring", []);
   const [presets, setPresets] = useLocalStorage<any>("gastopro.presets", { type: "expense", category: "alimentos", accountId: "cash" });
 
-  const [goals, setGoals] = useLocalStorage<SavingsGoal[]>("gastopro.goals", []);
+  // Personalización
   const [catIcons, setCatIcons] = useLocalStorage<Record<string, string>>("gastopro.catIcons", {
     alimentos: "🍔", servicios: "💡", transporte: "🚗", vivienda: "🏠", salud: "🩺", entretenimiento: "🎮", otros: "🧩",
     ingresos: "💼", ahorro: "🐷", transfer: "🔁"
   });
-
   const [kpiOrder, setKpiOrder] = useLocalStorage<KpiId[]>("gastopro.dashboard.kpis", ["ingresos", "gastos", "saldo", "proyeccion"]);
   const [kpiVisible, setKpiVisible] = useLocalStorage<Record<KpiId, boolean>>("gastopro.dashboard.kpis.visible", {
     ingresos: true, gastos: true, saldo: true, proyeccion: true
   });
 
+  // Ahorro / Gamificación
+  const [goals, setGoals] = useLocalStorage<SavingsGoal[]>("gastopro.goals", []);
+  const quotes = [
+    "Pequeños pasos, grandes resultados.",
+    "Primero te pagas a ti: ahorra antes de gastar.",
+    "Tu dinero trabaja mejor cuando tú decides el plan.",
+    "La constancia vence a la suerte.",
+    "Cada peso ahorrado es libertad ganada.",
+    "No se trata de cantidades, se trata de hábitos.",
+  ];
+
+  // Estados de formularios / modales
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [type, setType] = useState<"expense" | "income">(presets.type);
   const [cat, setCat] = useState<string>(presets.category);
@@ -151,66 +256,29 @@ export default function ExpenseTracker() {
   const [chat, setChat] = useLocalStorage<ChatMsg[]>("gastopro.assistant.chat", []);
   const chatListRef = useRef<HTMLDivElement>(null);
 
-  // Conversión CLP → USD/EUR
-  const [fx, setFx] = useState<FxRates>(null);
-  const [fxUpdatedAt, setFxUpdatedAt] = useState<string>("");
-
-  const quotes = [
-    "Pequeños pasos, grandes resultados.",
-    "Primero te pagas a ti: ahorra antes de gastar.",
-    "Tu dinero trabaja mejor cuando tú decides el plan.",
-    "La constancia vence a la suerte.",
-    "Cada peso ahorrado es libertad ganada.",
-    "No se trata de cantidades, se trata de hábitos.",
-  ];
-
   const searchRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
+  /* ===========================
+     Apariencia / formato
+  =========================== */
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark" || themeMode === "dark");
   }, [theme, themeMode]);
 
   const fmt = useMemo(
-    () => new Intl.NumberFormat(
-      currency === "CLP" ? "es-CL" : currency === "USD" ? "en-US" : "de-DE",
-      { style: "currency", currency, maximumFractionDigits: currency === "CLP" ? 0 : 2 }
-    ).format,
+    () =>
+      new Intl.NumberFormat(
+        currency === "CLP" ? "es-CL" : currency === "USD" ? "en-US" : "de-DE",
+        { style: "currency", currency, maximumFractionDigits: currency === "CLP" ? 0 : 2 }
+      ).format,
     [currency]
   );
-  const fmtUSD = useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format, []);
-  const fmtEUR = useMemo(() => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format, []);
 
-  // Trae tasas si la moneda seleccionada es CLP
-  useEffect(() => {
-    let ignore = false;
-    async function loadFx() {
-      if (currency !== "CLP") { setFx(null); return; }
-      try {
-        const res = await fetch("https://api.exchangerate.host/latest?base=CLP&symbols=USD,EUR");
-        const data = await res.json();
-        if (!ignore && data && data.rates) {
-          setFx({ USD: data.rates.USD, EUR: data.rates.EUR });
-          setFxUpdatedAt(new Date().toLocaleTimeString());
-        }
-      } catch {
-        if (!ignore) {
-          setFx({ USD: 0.001, EUR: 0.0009 });
-          setFxUpdatedAt("—");
-        }
-      }
-    }
-    loadFx();
-    return () => { ignore = true; };
-  }, [currency]);
-
-  // Helpers para imprimir la conversión
   const renderFxSmall = (valCLP: number, alignRight = false) => {
     if (currency !== "CLP" || !fx) return null;
-    // usar valor absoluto: para filas de tabla donde signed puede venir negativo (gasto)
-    const base = Math.abs(valCLP);
-    const usd = base * fx.USD;
-    const eur = base * fx.EUR;
+    const usd = Math.abs(valCLP) * fx.USD;
+    const eur = Math.abs(valCLP) * fx.EUR;
     return (
       <div className={cx("text-[11px] opacity-80 mt-1", alignRight && "text-right")}>
         {fmtUSD(usd)} · {fmtEUR(eur)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
@@ -227,6 +295,9 @@ export default function ExpenseTracker() {
     );
   };
 
+  /* ===========================
+     Teclas rápidas
+  =========================== */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement)?.tagName;
@@ -244,6 +315,9 @@ export default function ExpenseTracker() {
     chatListRef.current?.scrollTo({ top: chatListRef.current.scrollHeight, behavior: "smooth" });
   }, [chatOpen, chat]);
 
+  /* ===========================
+     Movimientos
+  =========================== */
   const ensureAccount = (id: string) => (accounts.some((a) => a.id === id) ? id : accounts[0]?.id || "cash");
 
   const add = (e?: React.FormEvent) => {
@@ -263,9 +337,11 @@ export default function ExpenseTracker() {
 
   const del = (id: string) => setItems((p) => p.filter((x) => x.id !== id));
 
+  // Rango mensual
   const [y, mNum] = month.split("-").map(Number);
   const start = new Date(y, mNum - 1, 1);
   const end = new Date(y, mNum, 1);
+
   const inMonth = items.filter((t) => {
     const d = new Date((t.date || "") + "T00:00:00");
     return d >= start && d < end;
@@ -279,6 +355,7 @@ export default function ExpenseTracker() {
     return txt.includes(q);
   });
 
+  // recurrencias
   useEffect(() => {
     if (!templates.length) return;
     const first = `${month}-01`;
@@ -289,10 +366,12 @@ export default function ExpenseTracker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, templates]);
 
+  // totales
   const totalIn  = inMonth.filter((i) => i.type === "income"  && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
   const totalOut = inMonth.filter((i) => i.type === "expense" && i.category !== "transfer").reduce((a: number, b: any) => a + b.amount, 0);
   const totalNet = totalIn - totalOut;
 
+  // gráficos
   const byCat = useMemo(() => {
     const map = new Map<string, number>();
     inMonth.filter((t) => t.type === "expense" && t.category !== "transfer").forEach((t) => map.set(t.category, (map.get(t.category) || 0) + t.amount));
@@ -320,6 +399,7 @@ export default function ExpenseTracker() {
     return r;
   }, [inMonth]);
 
+  // proyección
   const today = new Date();
   const dim = daysInMonth(y, mNum - 1);
   const isCurrent = today.getFullYear() === y && today.getMonth() + 1 === mNum;
@@ -327,6 +407,7 @@ export default function ExpenseTracker() {
   const avgDaily = dayIdx ? totalNet / dayIdx : 0;
   const projected = Math.round(avgDaily * dim);
 
+  // cuentas
   const accountBalance = (id: string) =>
     items.reduce((acc: number, t: any) => {
       const a = t.amount || 0;
@@ -335,6 +416,7 @@ export default function ExpenseTracker() {
     }, 0);
   const totalsByAccount = accounts.map((a) => ({ id: a.id, name: a.name, balance: accountBalance(a.id) }));
 
+  // export / import
   const downloadJSON = () => {
     const blob = new Blob([JSON.stringify({ items, budgets, templates, accounts, goals, catIcons, kpiOrder, kpiVisible, themeMode }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `gastopro-${month}.json`; a.click(); URL.revokeObjectURL(url);
@@ -362,11 +444,15 @@ export default function ExpenseTracker() {
     } catch { alert("Archivo no válido"); }
   };
 
+  // presupuestos
   const setBudget = (id: string, val: any) => setBudgets((p) => ({ ...p, [id]: Math.max(0, Number(val) || 0) }));
+
+  // cuentas CRUD
   const addAccount = () => setAccounts((p) => [...p, { id: uid(), name: `Cuenta ${p.length + 1}` }]);
   const renameAccount = (id: string, name: string) => setAccounts((p) => p.map((a) => (a.id === id ? { ...a, name } : a)));
   const removeAccount = (id: string) => { if (items.some((t) => t.accountId === id)) return alert("No puedes eliminar una cuenta con movimientos."); setAccounts((p) => p.filter((a) => a.id !== id)); };
 
+  // transferencias
   const submitTransfer = (e: React.FormEvent) => {
     e.preventDefault();
     const n = Number(transferAmt); if (!n || fromAcc === toAcc) return alert("Verifica cuentas y monto");
@@ -377,6 +463,9 @@ export default function ExpenseTracker() {
     setToastMsg("🔁 Transferencia registrada"); setToastOpen(true); setTimeout(() => setToastOpen(false), 2500);
   };
 
+  /* ===========================
+     Ahorro / gamificación
+  =========================== */
   const isSavingsTx = (t: any) => t.type === "expense" && t.category === "ahorro";
   const totalSavedAllTime = useMemo(
     () => items.filter(isSavingsTx).reduce((a: number, b: any) => a + (b.amount || 0), 0),
@@ -440,12 +529,18 @@ export default function ExpenseTracker() {
     setToastMsg(`🎯 ¡Ahorro agregado! ${phrase} (${pDone}%)`); setToastOpen(true); setTimeout(() => setToastOpen(false), 3000);
   };
 
+  /* ===========================
+     Drag order KPIs
+  =========================== */
   const moveKpi = (id: KpiId, dir: -1 | 1) => {
     const idx = kpiOrder.indexOf(id); if (idx < 0) return;
     const ni = idx + dir; if (ni < 0 || ni >= kpiOrder.length) return;
     const arr = [...kpiOrder]; [arr[idx], arr[ni]] = [arr[ni], arr[idx]]; setKpiOrder(arr);
   };
 
+  /* ===========================
+     Render
+  =========================== */
   return (
     <div className={(theme === "dark" || themeMode === "dark") ? "dark" : ""}>
       <section className={cx(
@@ -476,6 +571,8 @@ export default function ExpenseTracker() {
           <p className={cx("mt-2", themeMode === "minimal" ? "text-slate-700" : "text-white/90")}>
             Control profesional de gastos con metas, gráficos, cuentas, transferencias, ahorro, gamificación y personalización total.
           </p>
+
+          {/* KPIs */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             {(["ingresos","gastos","saldo","proyeccion"] as KpiId[]).filter((id) => kpiVisible[id]).map((id) => {
               const val = ({ ingresos: totalIn, gastos: totalOut, saldo: totalNet, proyeccion: projected } as any)[id] as number;
@@ -501,6 +598,7 @@ export default function ExpenseTracker() {
       </section>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
+        {/* Cuentas */}
         <Card>
           <div className="p-4 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 font-medium"><Wallet className="w-5 h-5" /> Cuentas</div>
@@ -518,6 +616,7 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
+        {/* Gamificación ahorro */}
         <Card>
           <div className="p-4 space-y-4">
             <div className="flex items-center gap-2"><Flame className="w-5 h-5 text-orange-500" /><div className="font-semibold">Racha de ahorro</div>
@@ -555,6 +654,7 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
+        {/* Objetivos ahorro */}
         <Card>
           <div className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
@@ -619,6 +719,7 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
+        {/* Form de movimientos + filtros */}
         <Card>
           <form ref={formRef} onSubmit={add} className="p-4 grid lg:grid-cols-8 gap-3">
             <select value={type} onChange={(e: Sel) => setType(e.target.value as "expense" | "income")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700">
@@ -658,6 +759,7 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
+        {/* Gráficos */}
         <div className="grid lg:grid-cols-3 gap-4 items-stretch">
           <Card>
             <div className="p-4 h-[300px]">
@@ -684,6 +786,7 @@ export default function ExpenseTracker() {
           </Card>
         </div>
 
+        {/* Tabla */}
         <Card>
           <div className="p-4 overflow-auto">
             <table className="w-full text-sm">
@@ -732,6 +835,7 @@ export default function ExpenseTracker() {
           </div>
         </Card>
 
+        {/* Metas por categoría */}
         <Card>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-3"><Wallet className="w-5 h-5" /><div className="font-semibold">Metas por categoría</div></div>
@@ -748,7 +852,9 @@ export default function ExpenseTracker() {
                       <div className="text-slate-600 dark:text-slate-300">{fmt(spent)} / {fmt(b)}</div>
                     </div>
                     {renderFxPairCLP(spent, b)}
-                    <div className="h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden mt-2"><div className={cx("h-2", cls)} style={{ width: `${bar}%` }} /></div>
+                    <div className="h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden mt-2">
+                      <div className={cx("h-2", cls)} style={{ width: `${bar}%` }} />
+                    </div>
                     <div className="mt-2 flex items-end gap-2">
                       <Input type="number" value={b} onChange={(e: Inp) => setBudget(id, e.target.value)} />
                       <div className="w-16 text-right text-xs font-medium">{pct(spent, b)}%</div>
@@ -765,6 +871,7 @@ export default function ExpenseTracker() {
         Hecho contigo 💙 · Tus datos quedan en tu navegador
       </footer>
 
+      {/* Modales */}
       <Modal open={accOpen} onClose={() => setAccOpen(false)} title="Administrar cuentas">
         <div className="space-y-2">
           {accounts.map((a) => (
@@ -848,13 +955,14 @@ export default function ExpenseTracker() {
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setCustomizeOpen(false)}>Listo</Button></div>
       </Modal>
 
-      {/* Ayuda y Asistente */}
+      {/* Botón ayuda */}
       <button
         aria-label="Ayuda"
         onClick={() => alert("Escríbenos: soporte@gastopro.app")}
         className="fixed bottom-6 right-6 z-40 rounded-full p-3 shadow-lg bg-indigo-600 text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       ><HelpCircle className="w-5 h-5" /></button>
 
+      {/* Asistente local */}
       <button
         aria-label="Asistente"
         onClick={() => setChatOpen(true)}
