@@ -207,8 +207,10 @@ export default function ExpenseTracker() {
   // Helpers para imprimir la conversión
   const renderFxSmall = (valCLP: number, alignRight = false) => {
     if (currency !== "CLP" || !fx) return null;
-    const usd = valCLP * fx.USD;
-    const eur = valCLP * fx.EUR;
+    // usar valor absoluto: para filas de tabla donde signed puede venir negativo (gasto)
+    const base = Math.abs(valCLP);
+    const usd = base * fx.USD;
+    const eur = base * fx.EUR;
     return (
       <div className={cx("text-[11px] opacity-80 mt-1", alignRight && "text-right")}>
         {fmtUSD(usd)} · {fmtEUR(eur)} {fxUpdatedAt ? `· ${fxUpdatedAt}` : ""}
@@ -543,7 +545,7 @@ export default function ExpenseTracker() {
             <div className="flex items-center gap-2"><Target className="w-5 h-5 text-cyan-500" /><div className="font-semibold">Reto semanal: +10% que la semana pasada</div></div>
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
               <div className="text-sm text-slate-700 dark:text-slate-300">
-                Esta semana: <strong>{fmt(sumBetween(startOfWeek(now), endOfWeek(now)))}</strong> · Semana pasada: <strong>{fmt(sumBetween(new Date(startOfWeek(now).getTime() - 7*24*3600*1000), startOfWeek(now)))}</strong> · Meta: <strong>{fmt(Math.ceil(sumBetween(new Date(startOfWeek(now).getTime() - 7*24*3600*1000), startOfWeek(now)) * 1.1))}</strong>
+                Esta semana: <strong>{fmt(savedThisWeek)}</strong> · Semana pasada: <strong>{fmt(savedLastWeek)}</strong> · Meta: <strong>{fmt(weeklyTarget)}</strong>
               </div>
               <div className="mt-2 h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden">
                 <div className={cx("h-2", weeklyProgressPct >= 100 ? "bg-green-500" : "bg-indigo-500")} style={{ width: `${weeklyProgressPct}%` }} />
@@ -745,6 +747,7 @@ export default function ExpenseTracker() {
                       <div className="font-medium capitalize"><span className="mr-1">{icon}</span>{id}</div>
                       <div className="text-slate-600 dark:text-slate-300">{fmt(spent)} / {fmt(b)}</div>
                     </div>
+                    {renderFxPairCLP(spent, b)}
                     <div className="h-2 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden mt-2"><div className={cx("h-2", cls)} style={{ width: `${bar}%` }} /></div>
                     <div className="mt-2 flex items-end gap-2">
                       <Input type="number" value={b} onChange={(e: Inp) => setBudget(id, e.target.value)} />
@@ -845,6 +848,7 @@ export default function ExpenseTracker() {
         <div className="mt-4 text-right"><Button variant="neutral" onClick={() => setCustomizeOpen(false)}>Listo</Button></div>
       </Modal>
 
+      {/* Ayuda y Asistente */}
       <button
         aria-label="Ayuda"
         onClick={() => alert("Escríbenos: soporte@gastopro.app")}
